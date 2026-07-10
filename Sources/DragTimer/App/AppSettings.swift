@@ -13,6 +13,7 @@ final class AppSettings: ObservableObject {
         var defaultNotificationsEnabled: Bool
         var defaultLabel: String?
         var defaultSnoozeMinutes: Int?
+        var quickStartMinutes: [Int]?
         var firePastDueOnWake: Bool
     }
 
@@ -29,7 +30,10 @@ final class AppSettings: ObservableObject {
     @Published var defaultNotificationsEnabled: Bool { didSet { persist() } }
     @Published var defaultLabel: String { didSet { persist() } }
     @Published var defaultSnoozeMinutes: Int { didSet { persist() } }
+    @Published private(set) var quickStartMinutes: [Int]
     @Published var firePastDueOnWake: Bool { didSet { persist() } }
+
+    static let defaultQuickStartMinutes = [5, 10, 15, 30, 60, 120, 180, 240]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -52,6 +56,9 @@ final class AppSettings: ObservableObject {
             defaultNotificationsEnabled = stored.defaultNotificationsEnabled
             defaultLabel = stored.defaultLabel ?? "Timer"
             defaultSnoozeMinutes = max(1, stored.defaultSnoozeMinutes ?? 5)
+            quickStartMinutes = Self.sanitizeQuickStartMinutes(
+                stored.quickStartMinutes ?? Self.defaultQuickStartMinutes
+            )
             firePastDueOnWake = stored.firePastDueOnWake
         } else {
             preset = .snappy
@@ -64,6 +71,7 @@ final class AppSettings: ObservableObject {
             defaultNotificationsEnabled = true
             defaultLabel = "Timer"
             defaultSnoozeMinutes = 5
+            quickStartMinutes = Self.defaultQuickStartMinutes
             firePastDueOnWake = true
         }
     }
@@ -94,6 +102,17 @@ final class AppSettings: ObservableObject {
         )
     }
 
+    func setQuickStartMinutes(_ minutes: [Int]) {
+        quickStartMinutes = Self.sanitizeQuickStartMinutes(minutes)
+        persist()
+    }
+
+    private static func sanitizeQuickStartMinutes(_ minutes: [Int]) -> [Int] {
+        let uniqueMinutes = Set(minutes.map { min(max($0, 1), 1_440) })
+        let sanitized = Array(uniqueMinutes.sorted().prefix(12))
+        return sanitized.isEmpty ? defaultQuickStartMinutes : sanitized
+    }
+
     private func persist() {
         let stored = StoredSettings(
             preset: preset,
@@ -106,6 +125,7 @@ final class AppSettings: ObservableObject {
             defaultNotificationsEnabled: defaultNotificationsEnabled,
             defaultLabel: defaultLabel,
             defaultSnoozeMinutes: defaultSnoozeMinutes,
+            quickStartMinutes: quickStartMinutes,
             firePastDueOnWake: firePastDueOnWake
         )
         guard let data = try? JSONEncoder().encode(stored) else { return }

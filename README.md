@@ -14,10 +14,13 @@ It is a Swift/AppKit app for macOS 14 and later. It has no Dock icon and keeps t
 ## What it does
 
 - Create a timer by dragging from the menu-bar clock icon.
-- View, edit, snooze, or cancel timers from the menu-bar popover.
+- Start 5, 10, 15, or 30 minute and 1, 2, 3, or 4 hour timers with one click.
+- Pause, resume, reset, edit, snooze, or cancel timers from the menu-bar popover.
+- Stop every active timer at once.
 - Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
+- Receive a macOS notification with sound when a timer finishes.
 - Set defaults for every new timer in Preferences.
-- Snap to useful durations and feel a haptic tick when crossing a snap point.
+- Snap to useful durations and feel a haptic tick when crossing a snap point, with lighter detent ticks as the duration scrubs in between.
 - Keep timers correct across sleep, wake, and relaunch by storing absolute fire dates.
 - Optionally launch at login and choose whether missed timers fire after wake.
 
@@ -40,6 +43,9 @@ Verify the published SHA-256 checksum before opening a downloaded build when you
 - Press and drag away from the icon. The floating label shows the current duration in real time.
 - Release to start the timer. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
 - Open the `…` menu beside a timer to edit its label, sound, loop behavior, notification, and snooze time.
+- Click a Quick start play button to begin a preset timer without dragging.
+- Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
+- Click **Stop all** at the bottom of the popover to clear every timer and stop a ringing alert.
 
 ### Preferences
 
@@ -50,6 +56,8 @@ The top section controls defaults for timers created after the change:
 - Timer name, alert sound, and volume
 - Loop-until-stopped behavior
 - Notification delivery and snooze length
+
+Quick start presets are also customizable in Preferences. Enter the durations in minutes; for example, `5, 15, 30, 60, 120` creates buttons for 5, 15, and 30 minutes plus 1 and 2 hours.
 
 The rest of the window controls drag feel, snap range, trackpad haptics, wake behavior, and launch at login. System beep follows your Mac’s alert volume; Glass uses Drag Timer’s volume setting.
 

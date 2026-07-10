@@ -11,6 +11,8 @@ final class DisplayLinkDriver: NSObject {
     private var lastTargetTimestamp: CFTimeInterval?
     private var displayID: UInt32?
 
+    var isRunning: Bool { displayLink != nil }
+
     func start(on screen: NSScreen?) {
         guard displayLink == nil else { return }
         guard let screen else { return }

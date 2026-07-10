@@ -21,6 +21,7 @@ enum SelfCheck {
             try verifyDeadlineHeap()
             try verifyPersistenceRoundTrip()
             try verifyTimerDefaultsPersistence()
+            try verifyTimerLifecycle()
             try verifyLoopingAlertPriority()
             print("DragTimer self-check passed")
             return 0
@@ -119,6 +120,7 @@ enum SelfCheck {
         settings.defaultLoop = true
         settings.defaultNotificationsEnabled = false
         settings.defaultSnoozeMinutes = 12
+        settings.setQuickStartMinutes([30, 5, 30, 120])
 
         let restored = AppSettings(defaults: defaults)
         let options = restored.defaultOptions()
@@ -128,10 +130,50 @@ enum SelfCheck {
         try require(options.loop, "default loop persists")
         try require(!options.notify, "default notification preference persists")
         try require(options.snoozeMinutes == 12, "default snooze persists")
+        try require(restored.quickStartMinutes == [5, 30, 120], "quick start presets persist and normalize")
         try require(
             TimerOptions(label: "Legacy", soundName: "Pulse").soundName == AlertSound.glass.rawValue,
             "legacy Pulse sound normalizes to Glass"
         )
+    }
+
+    private static func verifyTimerLifecycle() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DragTimerSelfCheck-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let persistence = TimerPersistence(fileURL: directory.appendingPathComponent("timers.json"))
+        let engine = TimerEngine(
+            persistence: persistence,
+            notificationService: NotificationService(center: nil),
+            audioPlayer: RecordingAudioPlayer()
+        )
+        let timer = engine.createTimer(duration: 120, options: TimerOptions(label: "Lifecycle"))
+
+        engine.pause(id: timer.id)
+        guard let paused = engine.timers.first else {
+            throw Failure.assertion("paused timer remains visible")
+        }
+        try require(paused.isPaused, "timer pauses")
+        try require((119...120).contains(Int(paused.remaining().rounded())), "pause keeps remaining duration")
+        let savedPausedTimers = try persistence.load()
+        try require(savedPausedTimers.first?.isPaused == true, "paused state persists")
+
+        engine.resume(id: timer.id)
+        try require(engine.timers.first?.isPaused == false, "timer resumes")
+
+        engine.reset(id: timer.id)
+        let resetRemaining = engine.timers.first?.remaining() ?? 0
+        try require(resetRemaining > 119 && resetRemaining <= 120, "running timer resets to its original duration")
+
+        engine.pause(id: timer.id)
+        engine.reset(id: timer.id)
+        try require(engine.timers.first?.remaining() == 120, "paused timer resets without resuming")
+
+        engine.cancelAll()
+        try require(engine.timers.isEmpty, "stop all clears timers")
+        let savedClearedTimers = try persistence.load()
+        try require(savedClearedTimers.isEmpty, "stop all persists the cleared state")
     }
 
     private static func verifyLoopingAlertPriority() throws {

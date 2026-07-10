@@ -140,6 +140,7 @@ struct DragPhysics {
     private(set) var distance: Double = 0
     private(set) var velocity: Double = 0
     private(set) var targetDuration: TimeInterval?
+    var isSnapped: Bool { activeSnap != nil }
 
     private var lastTimestamp: TimeInterval?
     private var lastDistance: Double = 0
@@ -207,6 +208,7 @@ struct DragPhysics {
         let snap = SnapGrid.nearest(to: projectedDuration, settings: settings)
         let finalDuration = snap ?? projectedDuration
 
+        activeSnap = snap
         targetDuration = finalDuration
         springVelocity = 0
         settlingElapsed = 0

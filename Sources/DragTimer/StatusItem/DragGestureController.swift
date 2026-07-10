@@ -1,6 +1,8 @@
 import AppKit
 
 final class DragGestureController {
+    private static let activationDistance: CGFloat = 8
+
     private enum GestureState {
         case idle
         case tracking
@@ -20,6 +22,8 @@ final class DragGestureController {
     private var didMoveEnough = false
     private var pendingDuration: TimeInterval?
     private var lastLabelTimestamp: TimeInterval = 0
+    private var lastDetentIndex: Int?
+    private var lastHapticTimestamp: TimeInterval = 0
 
     init(timerEngine: TimerEngine, settings: AppSettings, onPopoverRequested: @escaping () -> Void) {
         self.timerEngine = timerEngine
@@ -47,6 +51,8 @@ final class DragGestureController {
         didMoveEnough = false
         pendingDuration = nil
         lastLabelTimestamp = 0
+        lastDetentIndex = nil
+        lastHapticTimestamp = 0
 
         let overlay = DragOverlayWindowController()
         self.overlay = overlay
@@ -58,6 +64,7 @@ final class DragGestureController {
             originScreen: origin,
             cursorScreen: pointer,
             duration: newPhysics.displayDuration,
+            isSnapped: newPhysics.isSnapped,
             updateText: true
         )
 
@@ -75,16 +82,15 @@ final class DragGestureController {
         let dx = pointer.x - origin.x
         let dy = pointer.y - origin.y
         let distance = hypot(dx, dy)
-        didMoveEnough = didMoveEnough || distance >= 8
+        let didActivate = !didMoveEnough && distance >= Self.activationDistance
+        didMoveEnough = didMoveEnough || didActivate
         let enteredSnap = physics.updateDrag(distance: distance, timestamp: timestamp)
 
         self.physics = physics
         cursor = pointer
         displayLink?.retarget(to: screen(containing: pointer))
 
-        if enteredSnap && settings.hapticsEnabled && settings.snapDuringDrag {
-            performHaptic()
-        }
+        updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap, timestamp: timestamp)
     }
 
     func end(pointer: CGPoint, timestamp: TimeInterval) {
@@ -99,12 +105,11 @@ final class DragGestureController {
             let dy = pointer.y - origin.y
             let finalDistance = hypot(dx, dy)
             if finalDistance > physics.distance {
+                let didActivate = !didMoveEnough && finalDistance >= Self.activationDistance
                 let enteredSnap = physics.updateDrag(distance: finalDistance, timestamp: timestamp)
                 self.physics = physics
-                didMoveEnough = didMoveEnough || finalDistance >= 8
-                if enteredSnap && settings.hapticsEnabled && settings.snapDuringDrag {
-                    performHaptic()
-                }
+                didMoveEnough = didMoveEnough || didActivate
+                updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap, timestamp: timestamp)
             }
         }
 
@@ -120,16 +125,26 @@ final class DragGestureController {
         state = .settling
 
         if result.shouldHaptic && settings.hapticsEnabled {
-            performHaptic()
+            performHaptic(.alignment)
         }
 
-        if physics.phase == .finished {
+        // The display link normally drives the settle to completion, but if it
+        // never started (no usable screen) the released duration must not be
+        // lost — commit immediately instead.
+        if physics.phase == .finished || displayLink?.isRunning != true {
             commitAndFinish()
         }
     }
 
     func cancel() {
-        finish()
+        // Cancelling only aborts an in-flight drag. Once the user has released
+        // (settling), the timer is already decided; a right-click arriving
+        // during the short settle animation must still create it.
+        if state == .settling {
+            commitAndFinish()
+        } else {
+            finish()
+        }
     }
 
     private func renderFrame(elapsed: TimeInterval, timestamp: TimeInterval) {
@@ -147,6 +162,7 @@ final class DragGestureController {
             originScreen: origin,
             cursorScreen: cursor,
             duration: physics.displayDuration,
+            isSnapped: physics.isSnapped,
             updateText: updateText
         )
 
@@ -175,10 +191,69 @@ final class DragGestureController {
         state = .idle
     }
 
-    private func performHaptic() {
-        // `levelChange` is the more noticeable pattern for crossing a marked
-        // interval, and maps directly to the snap points in the drag curve.
-        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+    /// One activation buzz, a firm tick when a snap zone engages, and a light
+    /// tick each time the scrubbed duration crosses a detent rung. The detents
+    /// are what make the drag feel mechanical on a Force Touch trackpad —
+    /// snap-zone crossings alone are seconds apart and read as silence.
+    private func updateHaptics(didActivate: Bool, enteredSnap: Bool, timestamp: TimeInterval) {
+        guard settings.hapticsEnabled, let physics else { return }
+        let detent = Self.detentIndex(for: physics.displayDuration)
+
+        if didActivate {
+            // Performed while the finger is still down. macOS may suppress
+            // haptics after mouse-up when the trackpad is no longer touched.
+            performHaptic(.generic)
+            lastDetentIndex = detent
+            lastHapticTimestamp = timestamp
+            return
+        }
+
+        guard didMoveEnough else { return }
+
+        if enteredSnap && settings.snapDuringDrag {
+            performHaptic(.alignment)
+            lastDetentIndex = detent
+            lastHapticTimestamp = timestamp
+            return
+        }
+
+        if let lastDetentIndex, detent != lastDetentIndex, timestamp - lastHapticTimestamp >= 0.05 {
+            performHaptic(.levelChange)
+            lastHapticTimestamp = timestamp
+        }
+        lastDetentIndex = detent
+    }
+
+    /// Maps a duration onto a monotonic ladder of "nice" steps — every 30s
+    /// under 5 minutes, every minute to 15 minutes, every 5 minutes to an
+    /// hour, every 15 minutes to 4 hours, then every 30 minutes. Crossing a
+    /// rung means the user scrubbed past a value worth feeling.
+    private static func detentIndex(for duration: TimeInterval) -> Int {
+        let bands: [(upperBound: TimeInterval, step: TimeInterval)] = [
+            (5 * 60, 30),
+            (15 * 60, 60),
+            (60 * 60, 5 * 60),
+            (4 * 60 * 60, 15 * 60),
+            (.greatestFiniteMagnitude, 30 * 60)
+        ]
+
+        var index = 0
+        var lowerBound: TimeInterval = 0
+        for band in bands {
+            let cappedUpper = min(duration, band.upperBound)
+            if cappedUpper > lowerBound {
+                index += Int((cappedUpper - lowerBound) / band.step)
+            }
+            if duration <= band.upperBound { break }
+            lowerBound = band.upperBound
+        }
+        return index
+    }
+
+    private func performHaptic(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
+        // Resolve the performer for every tick so AppKit can target whichever
+        // Force Touch trackpad is currently driving the gesture.
+        NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
     }
 
     private func screen(containing point: CGPoint) -> NSScreen? {

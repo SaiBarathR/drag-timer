@@ -36,6 +36,8 @@ private struct SettingsView: View {
     @ObservedObject var settings: AppSettings
     @State private var launchAtLoginEnabled = LaunchAtLoginService.isEnabled
     @State private var launchAtLoginError: String?
+    @State private var quickStartDraft = ""
+    @State private var quickStartError: String?
 
     var body: some View {
         ScrollView {
@@ -69,6 +71,28 @@ private struct SettingsView: View {
                     Text("These choices are applied only to timers you create after changing them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                Section("Quick start presets") {
+                    HStack(alignment: .firstTextBaseline) {
+                        TextField("Minutes", text: $quickStartDraft)
+                            .onSubmit(saveQuickStartPresets)
+                        Button("Apply", action: saveQuickStartPresets)
+                    }
+                    if let quickStartError {
+                        Text(quickStartError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Enter comma-separated minutes, such as 5, 15, 30, 60. Use 60 for one hour.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Restore quick start defaults") {
+                        settings.setQuickStartMinutes(AppSettings.defaultQuickStartMinutes)
+                        quickStartDraft = formattedQuickStartMinutes
+                        quickStartError = nil
+                    }
                 }
 
                 Section("Feel") {
@@ -129,7 +153,6 @@ private struct SettingsView: View {
                     Toggle("Tick while passing a snap", isOn: $settings.snapDuringDrag)
                         .disabled(!settings.physics.snappingEnabled)
                     Toggle("Use trackpad haptics", isOn: $settings.hapticsEnabled)
-                        .disabled(!settings.physics.snappingEnabled)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("Snap range")
@@ -140,7 +163,7 @@ private struct SettingsView: View {
                         Slider(value: physicsBinding(\.snapTolerance), in: 8...60, step: 2)
                     }
                     .disabled(!settings.physics.snappingEnabled)
-                    Text("A haptic tick is sent whenever the drag enters a snapped duration.")
+                    Text("Feel a pickup tick when dragging engages and an alignment tick at snapped durations. Requires a Force Touch trackpad with haptic feedback enabled in System Settings.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -175,6 +198,7 @@ private struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             launchAtLoginEnabled = LaunchAtLoginService.isEnabled
+            quickStartDraft = formattedQuickStartMinutes
         }
     }
 
@@ -205,5 +229,27 @@ private struct SettingsView: View {
             launchAtLoginEnabled = LaunchAtLoginService.isEnabled
             launchAtLoginError = "macOS could not update launch-at-login for this app bundle."
         }
+    }
+
+    private var formattedQuickStartMinutes: String {
+        settings.quickStartMinutes.map(String.init).joined(separator: ", ")
+    }
+
+    private func saveQuickStartPresets() {
+        let tokens = quickStartDraft
+            .components(separatedBy: CharacterSet(charactersIn: ", "))
+            .filter { !$0.isEmpty }
+        let minutes = tokens.compactMap(Int.init)
+
+        guard !tokens.isEmpty, minutes.count == tokens.count,
+              minutes.count <= 12,
+              minutes.allSatisfy({ (1...1_440).contains($0) }) else {
+            quickStartError = "Enter up to 12 whole-minute presets from 1 to 1440."
+            return
+        }
+
+        settings.setQuickStartMinutes(minutes)
+        quickStartDraft = formattedQuickStartMinutes
+        quickStartError = nil
     }
 }

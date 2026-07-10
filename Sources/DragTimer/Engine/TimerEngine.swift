@@ -57,8 +57,11 @@ final class TimerEngine: ObservableObject {
 
     @discardableResult
     func createTimer(duration: TimeInterval, options: TimerOptions) -> TimerRecord {
+        let now = Date()
+        let normalizedDuration = max(1, duration.rounded())
         let record = TimerRecord(
-            fireDate: Date().addingTimeInterval(max(1, duration.rounded())),
+            createdAt: now,
+            fireDate: now.addingTimeInterval(normalizedDuration),
             options: options
         )
         insert(record, scheduleNotification: true)
@@ -66,17 +69,26 @@ final class TimerEngine: ObservableObject {
     }
 
     func update(_ timer: TimerRecord) {
-        guard heap.replace(timer), let index = timers.firstIndex(where: { $0.id == timer.id }) else { return }
+        guard let index = timers.firstIndex(where: { $0.id == timer.id }) else { return }
+
+        if timer.isPaused {
+            heap.remove(id: timer.id)
+        } else if !heap.replace(timer) {
+            heap.insert(timer)
+        }
         timers[index] = timer
-        timers.sort { $0.fireDate < $1.fireDate }
+        sortTimers()
         notificationService.remove(timerID: timer.id)
-        notificationService.schedule(timer)
+        if !timer.isPaused {
+            notificationService.schedule(timer)
+        }
         persist()
         rearmScheduler()
     }
 
     func cancel(id: UUID) {
-        guard heap.remove(id: id) != nil else { return }
+        guard timers.contains(where: { $0.id == id }) else { return }
+        heap.remove(id: id)
         timers.removeAll { $0.id == id }
         notificationService.remove(timerID: id)
         persist()
@@ -85,8 +97,48 @@ final class TimerEngine: ObservableObject {
 
     func snooze(id: UUID) {
         guard var timer = timers.first(where: { $0.id == id }) else { return }
-        timer.fireDate = Date().addingTimeInterval(TimeInterval(timer.snoozeMinutes * 60))
+        let duration = TimeInterval(timer.snoozeMinutes * 60)
+        timer.originalDuration = duration
+        timer.pausedRemaining = nil
+        timer.fireDate = Date().addingTimeInterval(duration)
         update(timer)
+    }
+
+    func pause(id: UUID) {
+        guard var timer = timers.first(where: { $0.id == id }), !timer.isPaused else { return }
+        timer.pausedRemaining = max(1, timer.remaining().rounded(.up))
+        update(timer)
+    }
+
+    func resume(id: UUID) {
+        guard var timer = timers.first(where: { $0.id == id }),
+              let remaining = timer.pausedRemaining else { return }
+        timer.pausedRemaining = nil
+        timer.fireDate = Date().addingTimeInterval(max(1, remaining))
+        update(timer)
+    }
+
+    func reset(id: UUID) {
+        guard var timer = timers.first(where: { $0.id == id }) else { return }
+        let duration = timer.resetDuration
+        if timer.isPaused {
+            timer.pausedRemaining = duration
+        } else {
+            timer.fireDate = Date().addingTimeInterval(duration)
+        }
+        update(timer)
+    }
+
+    func cancelAll() {
+        let timerIDs = timers.map(\.id)
+        heap = DeadlineHeap()
+        timers.removeAll()
+        for id in timerIDs {
+            notificationService.remove(timerID: id)
+        }
+        stopActiveAlert()
+        persist()
+        rearmScheduler()
     }
 
     func stopActiveAlert() {
@@ -104,12 +156,21 @@ final class TimerEngine: ObservableObject {
             return
         }
 
+        let now = Date()
         for timer in restoredTimers {
-            heap.insert(timer)
             timers.append(timer)
-            notificationService.schedule(timer)
+            if !timer.isPaused {
+                heap.insert(timer)
+                // A past-due timer's notification already delivered (the OS
+                // fires pending requests even while the app is not running).
+                // Re-scheduling it here would clamp to a 1-second trigger and
+                // deliver a duplicate banner right after launch.
+                if timer.fireDate > now {
+                    notificationService.schedule(timer)
+                }
+            }
         }
-        timers.sort { $0.fireDate < $1.fireDate }
+        sortTimers()
 
         if shouldFirePastDueOnWake() {
             handleSchedulerFire()
@@ -122,7 +183,7 @@ final class TimerEngine: ObservableObject {
     private func insert(_ timer: TimerRecord, scheduleNotification: Bool) {
         heap.insert(timer)
         timers.append(timer)
-        timers.sort { $0.fireDate < $1.fireDate }
+        sortTimers()
         if scheduleNotification {
             notificationService.schedule(timer)
         }
@@ -155,19 +216,19 @@ final class TimerEngine: ObservableObject {
         let expiredIDs = Set(expiredTimers.map(\.id))
         timers.removeAll { expiredIDs.contains($0.id) }
 
-        for timer in expiredTimers {
-            notificationService.remove(timerID: timer.id)
-        }
-
         // Multiple timers can expire in the same scheduler tick. Playing each
         // one in turn used to stop a looping alert when any later timer was
         // non-looping. Pick one audible alert, always preferring the looping
-        // one, so it stays active until the user stops it.
+        // one, so it stays active until the user stops it. A looping alert
+        // that is already ringing from an earlier tick keeps that priority
+        // too: a one-shot expiry must not silence it.
         let loopingAlert = expiredTimers.last(where: \.loop)
-        if let audibleAlert = loopingAlert ?? expiredTimers.last {
+        if let loopingAlert {
+            audioPlayer.play(timer: loopingAlert)
+            activeAlert = loopingAlert
+        } else if activeAlert == nil, let audibleAlert = expiredTimers.last {
             audioPlayer.play(timer: audibleAlert)
         }
-        activeAlert = loopingAlert
 
         persist()
         rearmScheduler()
@@ -206,5 +267,17 @@ final class TimerEngine: ObservableObject {
 
     private func persist() {
         try? persistence.save(timers)
+    }
+
+    private func sortTimers() {
+        timers.sort { lhs, rhs in
+            if lhs.isPaused != rhs.isPaused {
+                return !lhs.isPaused
+            }
+            if lhs.fireDate != rhs.fireDate {
+                return lhs.fireDate < rhs.fireDate
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
     }
 }
