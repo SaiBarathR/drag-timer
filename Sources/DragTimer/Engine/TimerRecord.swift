@@ -59,6 +59,9 @@ struct TimerRecord: Codable, Identifiable, Equatable {
     let id: UUID
     let createdAt: Date
     var fireDate: Date
+    /// Optional so timers saved by older releases continue to decode.
+    var originalDuration: TimeInterval?
+    var pausedRemaining: TimeInterval?
     var label: String
     var soundName: String
     var volume: Double
@@ -70,6 +73,8 @@ struct TimerRecord: Codable, Identifiable, Equatable {
         self.id = id
         self.createdAt = createdAt
         self.fireDate = fireDate
+        self.originalDuration = max(1, fireDate.timeIntervalSince(createdAt))
+        self.pausedRemaining = nil
         self.label = options.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Timer" : options.label
         self.soundName = AlertSound.normalizedName(options.soundName)
         self.volume = min(max(options.volume, 0), 1)
@@ -90,6 +95,19 @@ struct TimerRecord: Codable, Identifiable, Equatable {
     }
 
     func remaining(at date: Date = Date()) -> TimeInterval {
-        max(0, fireDate.timeIntervalSince(date))
+        max(0, pausedRemaining ?? fireDate.timeIntervalSince(date))
+    }
+
+    var isPaused: Bool {
+        pausedRemaining != nil
+    }
+
+    var resetDuration: TimeInterval {
+        max(1, originalDuration ?? fireDate.timeIntervalSince(createdAt))
+    }
+
+    func progress(at date: Date = Date()) -> Double {
+        let total = resetDuration
+        return min(1, max(0, 1 - (remaining(at: date) / total)))
     }
 }

@@ -94,7 +94,16 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
 
     private func isPointInsidePopover(_ screenPoint: CGPoint) -> Bool {
         guard let contentWindow = popover.contentViewController?.view.window else { return false }
-        return contentWindow.frame.insetBy(dx: -2, dy: -2).contains(screenPoint)
+        // The timer editor is presented as a sheet attached to the popover's
+        // window; clicks inside it (or any child window, such as an open
+        // menu) must not count as "outside".
+        var windows: [NSWindow] = [contentWindow]
+        windows.append(contentsOf: contentWindow.sheets)
+        if let attachedSheet = contentWindow.attachedSheet {
+            windows.append(attachedSheet)
+        }
+        windows.append(contentsOf: contentWindow.childWindows ?? [])
+        return windows.contains { $0.frame.insetBy(dx: -2, dy: -2).contains(screenPoint) }
     }
 
     private func isPointInsideAnchor(_ screenPoint: CGPoint) -> Bool {
@@ -111,6 +120,7 @@ private struct TimerListView: View {
     let onOpenSettings: () -> Void
 
     @State private var now = Date()
+    @State private var isVisible = false
     @State private var timerBeingEdited: TimerRecord?
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -118,6 +128,8 @@ private struct TimerListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+
+            quickStart
 
             if let activeAlert = timerEngine.activeAlert {
                 alertBanner(for: activeAlert)
@@ -134,7 +146,19 @@ private struct TimerListView: View {
         }
         .frame(width: 346)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onReceive(ticker) { now = $0 }
+        .onAppear {
+            isVisible = true
+            now = Date()
+        }
+        .onDisappear { isVisible = false }
+        // The hosting controller outlives the popover, so the ticker keeps
+        // firing after close; gating the assignment keeps the body from
+        // re-rendering every second while hidden.
+        .onReceive(ticker) { tick in
+            if isVisible {
+                now = tick
+            }
+        }
         .sheet(item: $timerBeingEdited) { timer in
             TimerEditorView(timer: timer) { updatedTimer in
                 timerEngine.update(updatedTimer)
@@ -147,7 +171,7 @@ private struct TimerListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Drag Timer")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                Text(timerEngine.timers.isEmpty ? "No timers running" : "\(timerEngine.timers.count) running")
+                Text(timerSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -158,6 +182,45 @@ private struct TimerListView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
+    }
+
+    private var quickStart: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("Quick start")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Spacer()
+                Text("Uses timer defaults")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 4), spacing: 7) {
+                ForEach(settings.quickStartMinutes, id: \.self) { minutes in
+                    Button {
+                        timerEngine.createTimer(
+                            duration: TimeInterval(minutes * 60),
+                            options: settings.defaultOptions()
+                        )
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(quickStartLabel(minutes))
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Start a \(quickStartAccessibilityLabel(minutes)) timer")
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 14)
     }
 
     private func alertBanner(for timer: TimerRecord) -> some View {
@@ -179,20 +242,20 @@ private struct TimerListView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Image(systemName: "hand.draw")
-                .font(.system(size: 26, weight: .light))
+                .font(.system(size: 22, weight: .light))
                 .foregroundStyle(Color.accentColor)
-            Text("Pull time from the menu bar")
+            Text("Or pull any duration")
                 .font(.system(size: 14, weight: .medium))
-            Text("Press the timer icon and drag. Distance sets time; a fast release adds momentum.")
+            Text("Drag from the menu-bar icon when a preset does not fit.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 36)
-        .padding(.vertical, 34)
+        .padding(.vertical, 22)
     }
 
     private var timerList: some View {
@@ -203,6 +266,12 @@ private struct TimerListView: View {
                         timer: timer,
                         now: now,
                         onEdit: { timerBeingEdited = timer },
+                        onPauseResume: {
+                            timer.isPaused
+                                ? timerEngine.resume(id: timer.id)
+                                : timerEngine.pause(id: timer.id)
+                        },
+                        onReset: { timerEngine.reset(id: timer.id) },
                         onSnooze: { timerEngine.snooze(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
@@ -217,10 +286,29 @@ private struct TimerListView: View {
 
     private var footer: some View {
         HStack {
-            Text("Drag the menu bar icon to start")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if !timerEngine.timers.isEmpty || timerEngine.activeAlert != nil {
+                Button("Stop all") {
+                    timerEngine.cancelAll()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+                .accessibilityHint("Cancels every timer and stops any ringing sound")
+            } else {
+                Text("Drag the menu bar icon to start")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Quit Drag Timer")
+            .help("Quit Drag Timer")
+
             Button(action: onOpenSettings) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 13, weight: .medium))
@@ -231,12 +319,38 @@ private struct TimerListView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
     }
+
+    private var timerSummary: String {
+        let paused = timerEngine.timers.filter(\.isPaused).count
+        let running = timerEngine.timers.count - paused
+        if running == 0 && paused == 0 { return "No timers running" }
+        if paused == 0 { return "\(running) running" }
+        if running == 0 { return "\(paused) paused" }
+        return "\(running) running, \(paused) paused"
+    }
+
+    private func quickStartLabel(_ minutes: Int) -> String {
+        if minutes >= 60, minutes.isMultiple(of: 60) {
+            return "\(minutes / 60) hr"
+        }
+        return "\(minutes) min"
+    }
+
+    private func quickStartAccessibilityLabel(_ minutes: Int) -> String {
+        if minutes >= 60, minutes.isMultiple(of: 60) {
+            let hours = minutes / 60
+            return "\(hours) hour\(hours == 1 ? "" : "s")"
+        }
+        return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+    }
 }
 
 private struct TimerRow: View {
     let timer: TimerRecord
     let now: Date
     let onEdit: () -> Void
+    let onPauseResume: () -> Void
+    let onReset: () -> Void
     let onSnooze: () -> Void
     let onCancel: () -> Void
 
@@ -247,8 +361,14 @@ private struct TimerRow: View {
                     .stroke(Color.accentColor.opacity(0.25), lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(timer.isPaused ? Color.secondary : Color.accentColor,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+                if timer.isPaused {
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(width: 28, height: 28)
 
@@ -256,15 +376,26 @@ private struct TimerRow: View {
                 Text(timer.label)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
-                Text(DurationText.compact(timer.remaining(at: now)))
+                Text(timer.isPaused
+                    ? "Paused · \(DurationText.compact(timer.remaining(at: now)))"
+                    : DurationText.compact(timer.remaining(at: now)))
                     .font(.system(size: 12, weight: .regular, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 4)
 
+            Button(action: onPauseResume) {
+                Image(systemName: timer.isPaused ? "play.fill" : "pause.fill")
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(timer.isPaused ? "Resume timer" : "Pause timer")
+
             Menu {
                 Button("Edit timer", action: onEdit)
+                Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
+                Button("Reset timer", action: onReset)
                 Button("Snooze \(timer.snoozeMinutes) min", action: onSnooze)
                 Divider()
                 Button("Cancel timer", role: .destructive, action: onCancel)
@@ -280,9 +411,7 @@ private struct TimerRow: View {
     }
 
     private var progress: CGFloat {
-        let total = max(1, timer.fireDate.timeIntervalSince(timer.createdAt))
-        let elapsed = max(0, min(total, now.timeIntervalSince(timer.createdAt)))
-        return CGFloat(elapsed / total)
+        CGFloat(timer.progress(at: now))
     }
 }
 
