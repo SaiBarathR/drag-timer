@@ -22,12 +22,14 @@ jobs:
       - name: Run deterministic checks
         run: swift run DragTimer --self-test
 
-      - name: Build the unsigned app bundle
+      - name: Build the app bundle
         run: ./Scripts/build-app.sh
 
-      - name: Confirm the bundle is unsigned
+      - name: Confirm the bundle has a valid ad-hoc signature
         run: |
-          if codesign --display --verbose=0 "dist/Drag Timer.app" >/dev/null 2>&1; then
-            echo "The release bundle must remain unsigned."
+          codesign --verify --deep --strict "dist/Drag Timer.app"
+          authority="$(codesign --display --verbose=2 "dist/Drag Timer.app" 2>&1 | grep '^Signature=' || true)"
+          if [ "$authority" != "Signature=adhoc" ]; then
+            echo "The release bundle must carry an ad-hoc signature, got: ${authority:-none}"
             exit 1
           fi
