@@ -23,11 +23,11 @@ It is a Swift/AppKit app for macOS 14 and later. It has no Dock icon and keeps t
 
 ## Install a release
 
-Releases include `Drag-Timer-<version>-macos-unsigned.zip` and `SHA256SUMS.txt`.
+Releases include `Drag-Timer-<version>-macos.zip` and `SHA256SUMS.txt`.
 
 1. Download and unzip the archive from the [Releases](https://github.com/SaiBarathR/drag-timer/releases) page.
 2. Move `Drag Timer.app` to Applications.
-3. Because releases are intentionally unsigned and not notarized, macOS will show a Gatekeeper warning on first launch. Control-click the app, choose **Open**, then confirm; alternatively use **Open Anyway** in System Settings → Privacy & Security.
+3. Because releases are ad-hoc signed rather than notarized with a Developer ID, macOS will show a Gatekeeper warning on first launch. Control-click the app, choose **Open**, then confirm; alternatively use **Open Anyway** in System Settings → Privacy & Security.
 4. Drag from the menu-bar timer icon to create your first timer.
 
 Verify the published SHA-256 checksum before opening a downloaded build when you want to confirm its integrity.
@@ -67,7 +67,7 @@ Build an app bundle:
 open "dist/Drag Timer.app"
 ```
 
-The script deliberately produces an **unsigned** app bundle. It is suitable for local use and the public release workflow, but it is not notarized for frictionless distribution.
+The script applies an **ad-hoc** code signature to the bundle — required for the app to launch at all on Apple Silicon — but it is not signed with a Developer ID or notarized for frictionless distribution.
 
 ## Verify
 
@@ -82,8 +82,8 @@ swift run DragTimer --self-test
 
 GitHub Actions is configured for macOS 14:
 
-- [CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It builds the app, runs self-checks, packages the unsigned bundle, and confirms it is not signed.
-- [Release](.github/workflows/release.yml) runs when a `v*` tag is pushed. It builds the tagged source, creates an unsigned ZIP and SHA-256 checksum, then publishes them to the matching GitHub release.
+- [CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It builds the app, runs self-checks, packages the bundle, and confirms it carries a valid ad-hoc signature.
+- [Release](.github/workflows/release.yml) runs when a `v*` tag is pushed. It builds the tagged source, creates a ZIP and SHA-256 checksum, then publishes them to the matching GitHub release.
 
 To publish a new version after updating `Packaging/Info.plist`:
 

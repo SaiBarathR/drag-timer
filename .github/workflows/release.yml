@@ -1,4 +1,4 @@
-name: Release unsigned macOS app
+name: Release macOS app
 
 on:
   push:
@@ -16,14 +16,14 @@ jobs:
       - name: Check out the tagged source
         uses: actions/checkout@v4
 
-      - name: Build the unsigned app bundle
+      - name: Build the app bundle
         run: ./Scripts/build-app.sh
 
       - name: Package release assets
         id: package
         run: |
           version="${GITHUB_REF_NAME#v}"
-          archive="dist/Drag-Timer-${version}-macos-unsigned.zip"
+          archive="dist/Drag-Timer-${version}-macos.zip"
           ditto -c -k --sequesterRsrc --keepParent "dist/Drag Timer.app" "$archive"
           shasum -a 256 "$archive" > dist/SHA256SUMS.txt
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
@@ -39,5 +39,5 @@ jobs:
           else
             gh release create "$TAG" "$ARCHIVE" dist/SHA256SUMS.txt \
               --title "Drag Timer ${TAG#v}" \
-              --notes "Unsigned macOS build. See the README for Gatekeeper installation guidance."
+              --notes "Ad-hoc signed macOS build (not notarized). See the README for Gatekeeper installation guidance."
           fi
