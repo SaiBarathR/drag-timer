@@ -75,6 +75,28 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(checker.availableRelease?.tagName, "v1.3.0")
     }
 
+    func testFailedAutomaticCheckDoesNotAdvanceThrottle() async {
+        let fixture = makeSettings()
+        defer { fixture.cleanup() }
+        let transport = FlakyTransport(data: releaseJSON(tag: "v1.3.0"))
+        let checker = UpdateChecker(
+            settings: fixture.settings,
+            transport: transport,
+            currentVersionString: "1.2.0"
+        )
+
+        await checker.checkIfNeeded()
+
+        XCTAssertNil(fixture.settings.lastUpdateCheckAt)
+        XCTAssertEqual(transport.callCount, 1)
+
+        await checker.checkIfNeeded()
+
+        XCTAssertEqual(transport.callCount, 2)
+        XCTAssertNotNil(fixture.settings.lastUpdateCheckAt)
+        XCTAssertEqual(checker.availableRelease?.tagName, "v1.3.0")
+    }
+
     private func releaseJSON(
         tag: String,
         url: String = "https://github.com/SaiBarathR/drag-timer/releases/tag/v1.3.0"
@@ -115,6 +137,22 @@ final class UpdateCheckerTests: XCTestCase {
     private struct FailingTransport: UpdateTransport {
         func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             throw URLError(.notConnectedToInternet)
+        }
+    }
+
+    private final class FlakyTransport: UpdateTransport {
+        let data: Data
+        private(set) var callCount = 0
+
+        init(data: Data) { self.data = data }
+
+        func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+            callCount += 1
+            if callCount == 1 { throw URLError(.notConnectedToInternet) }
+            return (
+                data,
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            )
         }
     }
 }
