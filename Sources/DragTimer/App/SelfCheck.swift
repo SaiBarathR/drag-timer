@@ -258,6 +258,20 @@ enum SelfCheck {
         settings.defaultSnoozeMinutes = 12
         settings.askForLabelAfterDrag = false
         settings.setQuickStartMinutes([30, 5, 30, 120])
+        let routine = TimerRoutine(
+            name: "Morning",
+            timers: [
+                RoutineTimerDefinition(
+                    duration: 5 * 60,
+                    options: TimerOptions(label: "Coffee", notify: false)
+                ),
+                RoutineTimerDefinition(
+                    duration: 15 * 60,
+                    options: TimerOptions(label: "Journal")
+                )
+            ]
+        )
+        try require(settings.addRoutine(routine), "valid routine saves")
         settings.setMaximumDragDurationHours(12)
 
         let restored = AppSettings(defaults: defaults)
@@ -272,6 +286,11 @@ enum SelfCheck {
         try require(
             restored.quickStartMinutes == [30, 5, 30, 120],
             "quick start presets preserve order and duplicate durations"
+        )
+        try require(restored.routines.map(\.name) == ["Morning"], "timer routines persist")
+        try require(
+            restored.routines.first?.timers.map(\.options.label) == ["Coffee", "Journal"],
+            "routine timer snapshots preserve order"
         )
         try require(restored.maximumDragDurationHours == 12, "maximum drag duration persists")
         restored.setMaximumDragDurationHours(48)
@@ -316,6 +335,20 @@ enum SelfCheck {
         engine.pause(id: timer.id)
         engine.reset(id: timer.id)
         try require(engine.timers.first?.remaining() == 120, "paused timer resets without resuming")
+
+        let routineTimers = engine.createTimers(templates: [
+            TimerTemplate(duration: 300, options: TimerOptions(label: "Coffee"), origin: .routine),
+            TimerTemplate(duration: 900, options: TimerOptions(label: "Journal"), origin: .routine)
+        ])
+        try require(routineTimers.count == 2, "routine batch creates every timer")
+        try require(
+            Set(routineTimers.map(\.createdAt)).count == 1,
+            "routine batch uses one creation timestamp"
+        )
+        try require(
+            routineTimers.allSatisfy { $0.resolvedOrigin == .routine },
+            "routine batch records its origin"
+        )
 
         engine.cancelAll()
         try require(engine.timers.isEmpty, "stop all clears timers")
