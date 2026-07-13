@@ -22,6 +22,7 @@ enum SelfCheck {
             try verifyPersistenceRoundTrip()
             try verifyTimerDefaultsPersistence()
             try verifyTimerLifecycle()
+            try verifyPastDueTimerCreation()
             try verifyLoopingAlertPriority()
             print("DragTimer self-check passed")
             return 0
@@ -205,6 +206,26 @@ enum SelfCheck {
 
         try require(audio.playedTimers.map(\.id) == [looping.id], "looping timer keeps audio priority")
         try require(engine.activeAlert?.id == looping.id, "looping timer remains stoppable")
+    }
+
+    private static func verifyPastDueTimerCreation() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DragTimerSelfCheck-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let audio = RecordingAudioPlayer()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio
+        )
+        let timer = engine.createTimer(
+            fireDate: Date().addingTimeInterval(-1),
+            options: TimerOptions(label: "Already due")
+        )
+
+        try require(engine.timers.isEmpty, "past-due timer fires without a one-second clamp")
+        try require(audio.playedTimers.map(\.id) == [timer.id], "past-due timer alerts immediately")
     }
 
     private final class RecordingAudioPlayer: AudioAlertPlaying {

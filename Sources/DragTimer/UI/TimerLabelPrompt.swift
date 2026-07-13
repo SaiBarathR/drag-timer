@@ -1,18 +1,21 @@
 import AppKit
 
 enum TimerLabelPrompt {
-    static func requestLabel(duration: TimeInterval, targetFireDate: Date) -> String? {
-        let controller = TimerLabelPromptController(duration: duration, targetFireDate: targetFireDate)
+    static func requestLabel(targetFireDate: Date) -> String? {
+        let controller = TimerLabelPromptController(targetFireDate: targetFireDate)
         return controller.run()
     }
 }
 
 private final class TimerLabelPromptController: NSObject, NSWindowDelegate {
     private let panel: NSPanel
+    private let targetFireDate: Date
+    private let detailLabel = NSTextField(labelWithString: "")
     private let labelField = NSTextField()
     private var accepted = false
 
-    init(duration: TimeInterval, targetFireDate: Date) {
+    init(targetFireDate: Date) {
+        self.targetFireDate = targetFireDate
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 390, height: 190),
             styleMask: [.titled, .fullSizeContentView],
@@ -38,11 +41,9 @@ private final class TimerLabelPromptController: NSObject, NSWindowDelegate {
         let titleLabel = NSTextField(labelWithString: "Name this timer")
         titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
 
-        let detailLabel = NSTextField(labelWithString:
-            "Starts in \(DurationText.compact(duration)) at \(TimerDateText.fireTime(for: targetFireDate))."
-        )
         detailLabel.font = .systemFont(ofSize: 13)
         detailLabel.textColor = .secondaryLabelColor
+        refreshDetailText()
 
         labelField.placeholderString = "What is this timer for?"
         labelField.stringValue = ""
@@ -103,7 +104,12 @@ private final class TimerLabelPromptController: NSObject, NSWindowDelegate {
             panel.makeFirstResponder(labelField)
         }
 
+        let detailTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.refreshDetailText()
+        }
+        RunLoop.main.add(detailTimer, forMode: .common)
         NSApp.runModal(for: panel)
+        detailTimer.invalidate()
         panel.orderOut(nil)
 
         guard accepted else { return nil }
@@ -124,6 +130,12 @@ private final class TimerLabelPromptController: NSObject, NSWindowDelegate {
     @objc private func cancel() {
         accepted = false
         NSApp.abortModal()
+    }
+
+    private func refreshDetailText() {
+        let remaining = max(0, targetFireDate.timeIntervalSinceNow)
+        detailLabel.stringValue =
+            "Starts in \(DurationText.compact(remaining)) at \(TimerDateText.fireTime(for: targetFireDate))."
     }
 
     private func positionNearMenuBar() {

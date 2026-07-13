@@ -7,6 +7,7 @@ final class DragGestureController {
         case idle
         case tracking
         case settling
+        case prompting
     }
 
     private let timerEngine: TimerEngine
@@ -142,7 +143,7 @@ final class DragGestureController {
         // during the short settle animation must still create it.
         if state == .settling {
             commitAndFinish()
-        } else {
+        } else if state == .tracking {
             finish()
         }
     }
@@ -178,33 +179,33 @@ final class DragGestureController {
         }
         let shouldAskForLabel = settings.askForLabelAfterDrag
         let targetFireDate = Date().addingTimeInterval(duration.rounded())
-        finish()
 
         guard shouldAskForLabel else {
+            finish()
             timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
             return
         }
+
+        finish(as: .prompting)
 
         // Leave the status item's nested mouse-tracking loop before presenting
         // a key window. This keeps keyboard focus and the Cancel shortcut
         // reliable after mouse-up.
         DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  let label = TimerLabelPrompt.requestLabel(
-                    duration: duration,
-                    targetFireDate: targetFireDate
-                  ) else { return }
+            guard let self else { return }
+            let label = TimerLabelPrompt.requestLabel(
+                targetFireDate: targetFireDate
+            )
+            self.state = .idle
+            guard let label else { return }
             self.timerEngine.createTimer(
-                // The countdown begins when the handle is released, not when
-                // the user finishes typing, so the promised clock time stays
-                // accurate while the prompt is open.
-                duration: targetFireDate.timeIntervalSinceNow,
+                fireDate: targetFireDate,
                 options: self.settings.defaultOptions(label: label)
             )
         }
     }
 
-    private func finish() {
+    private func finish(as finalState: GestureState = .idle) {
         displayLink?.stop()
         displayLink = nil
         overlay?.hide()
@@ -214,7 +215,7 @@ final class DragGestureController {
         cursor = nil
         pendingDuration = nil
         didMoveEnough = false
-        state = .idle
+        state = finalState
     }
 
     /// One activation buzz, a firm tick when a snap zone engages, and a light
