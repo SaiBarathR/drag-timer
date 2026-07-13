@@ -33,8 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(
             timerEngine: timerEngine,
             settings: settings,
-            onPopoverRequested: { [weak popoverController] button in
-                popoverController?.toggle(relativeTo: button)
+            onPopoverRequested: { [weak popoverController] view, positioningRect in
+                popoverController?.toggle(relativeTo: view, positioningRect: positioningRect)
+            },
+            onPopoverAnchorChanged: { [weak popoverController] view, positioningRect in
+                popoverController?.updatePositioningRect(positioningRect, relativeTo: view)
             }
         )
 

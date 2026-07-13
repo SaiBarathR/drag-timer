@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import DragTimer
 
@@ -38,24 +39,42 @@ final class MenuBarCountdownTests: XCTestCase {
         XCTAssertEqual(MenuBarCountdown.text(forRemaining: 0), "0:00")
     }
 
-    func testPopoverAnchorStaysExpandedWhenRunningTimerIsPaused() {
-        let runningMode = StatusItemLayoutPolicy.mode(
-            hasRunningTimer: true,
-            isPopoverVisible: true
-        )
-        let pausedMode = StatusItemLayoutPolicy.mode(
-            hasRunningTimer: false,
-            isPopoverVisible: true
-        )
+    func testStatusItemWidthFollowsRenderedCountdownText() {
+        let countdowns = ["4:00", "10:00", "12h 59m", "1d 2h"]
 
-        XCTAssertEqual(runningMode, .expanded)
-        XCTAssertEqual(pausedMode, runningMode)
+        XCTAssertEqual(StatusItemGeometry.width(for: nil), 32)
+        for countdown in countdowns {
+            let expected = ceil(
+                StatusItemGeometry.textLeading
+                    + StatusItemGeometry.measuredWidth(of: countdown)
+                    + StatusItemGeometry.textTrailing
+            )
+            XCTAssertEqual(StatusItemGeometry.width(for: countdown), expected)
+        }
+
+        XCTAssertEqual(StatusItemGeometry.width(for: "4:00"), StatusItemGeometry.width(for: "9:59"))
+        XCTAssertLessThan(StatusItemGeometry.width(for: "4:00"), StatusItemGeometry.width(for: "10:00"))
+        XCTAssertLessThan(StatusItemGeometry.width(for: "10:00"), StatusItemGeometry.width(for: "12h 59m"))
     }
 
-    func testPausedTimerCollapsesOnlyAfterPopoverCloses() {
-        XCTAssertEqual(
-            StatusItemLayoutPolicy.mode(hasRunningTimer: false, isPopoverVisible: false),
-            .collapsed
+    func testPopoverAnchorTracksClockGlyphInsteadOfWholeItem() {
+        let countdownWidth = StatusItemGeometry.width(for: "4:00")
+        let countdownBounds = NSRect(x: 0, y: 0, width: countdownWidth, height: 22)
+        let countdownAnchor = StatusItemGeometry.popoverAnchorRect(
+            in: countdownBounds,
+            hasCountdownLayout: true
         )
+
+        XCTAssertEqual(countdownAnchor.size, NSSize(width: 14, height: countdownBounds.height))
+        XCTAssertEqual(countdownAnchor.midX, 13)
+        XCTAssertNotEqual(countdownAnchor.midX, countdownBounds.midX)
+        XCTAssertEqual(countdownAnchor.minY, countdownBounds.minY)
+
+        let collapsedBounds = NSRect(x: 0, y: 0, width: 32, height: 22)
+        let collapsedAnchor = StatusItemGeometry.popoverAnchorRect(
+            in: collapsedBounds,
+            hasCountdownLayout: false
+        )
+        XCTAssertEqual(collapsedAnchor.midX, collapsedBounds.midX)
     }
 }
