@@ -40,7 +40,9 @@ struct TimerHistoryStore {
 
     private func preserveCorruptFile() {
         let backupURL = fileURL.deletingPathExtension()
-            .appendingPathExtension("corrupt-(Int(Date().timeIntervalSince1970)).json")
+            .appendingPathExtension(
+                "corrupt-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString).json"
+            )
         try? FileManager.default.moveItem(at: fileURL, to: backupURL)
     }
 }

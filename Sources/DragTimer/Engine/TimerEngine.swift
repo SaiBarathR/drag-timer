@@ -333,6 +333,7 @@ final class TimerEngine: ObservableObject {
             }
             guard let inferredResolution,
                   let historyIndex = historyEntries.firstIndex(where: { $0.id == expiry.id }) else { continue }
+            historyEntries[historyIndex].outcome = .completed
             historyEntries[historyIndex].resolution = inferredResolution
             historyEntries[historyIndex].linkedTimerID = child.id
             resolvedPendingIDs.insert(expiry.id)
@@ -405,6 +406,7 @@ final class TimerEngine: ObservableObject {
         }
 
         if let historyIndex = historyEntries.firstIndex(where: { $0.id == expiry.id }) {
+            historyEntries[historyIndex].outcome = .completed
             historyEntries[historyIndex].resolution = resolution
             historyEntries[historyIndex].linkedTimerID = child?.id
         } else {
@@ -448,10 +450,34 @@ final class TimerEngine: ObservableObject {
         activeAlert = nil
     }
 
-    private func handleNotificationAction(timerID: UUID, action: NotificationTimerAction) {
+    /// Internal for deterministic notification-action lifecycle tests.
+    func handleNotificationAction(timerID: UUID, action: NotificationTimerAction) {
         // If the app was launched by the action, state reconciliation has
         // already converted a past-due active timer into a pending expiry.
-        guard let expiry = pendingExpiries.first(where: { $0.timer.id == timerID }) else { return }
+        let expiry: PendingExpiry
+        if let pending = pendingExpiries.first(where: { $0.timer.id == timerID }) {
+            expiry = pending
+        } else {
+            // When missed timers are configured not to fire, wake/launch keeps
+            // only a discarded history snapshot. A notification may already
+            // have been delivered by macOS, so restore actionable state only
+            // after the user explicitly taps one of its actions.
+            guard let entry = historyEntries.first(where: {
+                $0.sourceTimerID == timerID && $0.outcome == .discarded && $0.resolution == nil
+            }) else { return }
+            let restoredTimer = TimerRecord(
+                id: entry.sourceTimerID,
+                createdAt: entry.startedAt,
+                fireDate: entry.startedAt.addingTimeInterval(entry.plannedDuration),
+                options: entry.optionsSnapshot,
+                origin: entry.origin,
+                parentEventID: entry.parentEventID
+            )
+            expiry = PendingExpiry(id: entry.id, timer: restoredTimer, expiredAt: entry.endedAt)
+            pendingExpiries.append(expiry)
+            sortPendingExpiries()
+            persistPendingExpiries()
+        }
         switch action {
         case .snooze: _ = snoozeExpiry(id: expiry.id)
         case .markDone: markExpiryDone(id: expiry.id)

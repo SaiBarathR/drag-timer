@@ -34,8 +34,13 @@ final class TimerHistoryStoreTests: XCTestCase {
         let store = TimerHistoryStore(fileURL: url)
 
         XCTAssertEqual(store.load(), [])
-        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        XCTAssertTrue(names.contains { $0.hasPrefix("history.corrupt-") })
+        try Data("still not json".utf8).write(to: url)
+        XCTAssertEqual(store.load(), [])
+
+        let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix("history.corrupt-") && $0.hasSuffix(".json") }
+        XCTAssertEqual(backups.count, 2)
+        XCTAssertEqual(Set(backups).count, 2)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 

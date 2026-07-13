@@ -131,7 +131,6 @@ final class UpdateChecker: ObservableObject {
         guard state != .checking else { return }
         let previousState = state
         state = .checking
-        settings.lastUpdateCheckAt = now()
         do {
             var request = URLRequest(url: Self.endpoint)
             request.timeoutInterval = 12
@@ -150,6 +149,7 @@ final class UpdateChecker: ObservableObject {
 
             settings.cachedUpdateTag = release.tagName
             settings.cachedUpdateURLString = release.htmlURL.absoluteString
+            settings.lastUpdateCheckAt = now()
             if latestVersion > currentVersion {
                 state = .available(release)
             } else {

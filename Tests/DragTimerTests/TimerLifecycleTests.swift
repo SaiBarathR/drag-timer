@@ -137,6 +137,57 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationActionsRecoverDiscardedPastDueTimers() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let startedAt = Date(timeIntervalSinceReferenceDate: 4_000)
+        let currentDate = startedAt.addingTimeInterval(181)
+        let markDone = TimerRecord(
+            createdAt: startedAt,
+            fireDate: startedAt.addingTimeInterval(60),
+            options: TimerOptions(label: "Done")
+        )
+        let snooze = TimerRecord(
+            createdAt: startedAt,
+            fireDate: startedAt.addingTimeInterval(120),
+            options: TimerOptions(label: "Snooze", snoozeMinutes: 7)
+        )
+        let restart = TimerRecord(
+            createdAt: startedAt,
+            fireDate: startedAt.addingTimeInterval(180),
+            options: TimerOptions(label: "Restart")
+        )
+        let persistence = TimerPersistence(fileURL: directory.appendingPathComponent("timers.json"))
+        try persistence.save([markDone, snooze, restart])
+        let engine = TimerEngine(
+            persistence: persistence,
+            notificationService: NotificationService(center: nil),
+            audioPlayer: AudioSpy(),
+            shouldFirePastDueOnWake: { false },
+            now: { currentDate }
+        )
+        XCTAssertEqual(engine.historyEntries.filter { $0.outcome == .discarded }.count, 3)
+        XCTAssertTrue(engine.pendingExpiries.isEmpty)
+
+        engine.handleNotificationAction(timerID: markDone.id, action: .markDone)
+        engine.handleNotificationAction(timerID: snooze.id, action: .snooze)
+        engine.handleNotificationAction(timerID: restart.id, action: .restart)
+
+        let doneHistory = engine.historyEntries.first { $0.sourceTimerID == markDone.id }
+        let snoozeHistory = engine.historyEntries.first { $0.sourceTimerID == snooze.id }
+        let restartHistory = engine.historyEntries.first { $0.sourceTimerID == restart.id }
+        XCTAssertEqual(doneHistory?.outcome, .completed)
+        XCTAssertEqual(doneHistory?.resolution, .markDone)
+        XCTAssertEqual(snoozeHistory?.outcome, .completed)
+        XCTAssertEqual(snoozeHistory?.resolution, .snoozed)
+        XCTAssertEqual(restartHistory?.outcome, .completed)
+        XCTAssertEqual(restartHistory?.resolution, .restarted)
+        XCTAssertEqual(engine.timers.first { $0.parentEventID == snoozeHistory?.id }?.resetDuration, 7 * 60)
+        XCTAssertEqual(engine.timers.first { $0.parentEventID == restartHistory?.id }?.resetDuration, 180)
+        XCTAssertTrue(engine.pendingExpiries.isEmpty)
+    }
+
+    @MainActor
     func testFinishedOneShotDoesNotSuppressLaterExpiryAudio() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 5_000))

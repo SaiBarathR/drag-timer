@@ -54,7 +54,7 @@ Implemented in the first pass:
 - live macOS notification-permission status with request and System Settings recovery actions;
 - sidebar Preferences and updated README behavior/privacy documentation.
 
-Automated verification currently covers 51 XCTest cases plus the deterministic self-check. The app bundle builds, carries a valid ad-hoc signature, and launches. Before calling the release definition of done, complete the hands-on VoiceOver/keyboard/appearance matrix, capture replacement screenshots, and exercise notification buttons and sleep/wake on a packaged build.
+Automated verification currently covers 53 XCTest cases plus the deterministic self-check. The app bundle builds, carries a valid ad-hoc signature, and launches. Before calling the release definition of done, complete the hands-on VoiceOver/keyboard/appearance matrix, capture replacement screenshots, and exercise notification buttons and sleep/wake on a packaged build.
 
 ## Current-code assessment
 
