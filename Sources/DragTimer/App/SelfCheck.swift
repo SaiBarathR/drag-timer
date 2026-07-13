@@ -19,6 +19,7 @@ enum SelfCheck {
         do {
             try verifyDistanceMapping()
             try verifyInertiaProjection()
+            try verifyStoppedReleaseMatchesPreview()
             try verifySpringSettlement()
             try verifyDeadlineHeap()
             try verifyMenuBarCountdown()
@@ -62,15 +63,43 @@ enum SelfCheck {
         var settings = DragPhysicsSettings.forPreset(.throwable)
         settings.snappingEnabled = false
         settings.reduceMotion = true
-        let mapper = DurationMapper(settings: settings)
         var physics = DragPhysics(settings: settings)
 
         physics.begin(at: 1)
         _ = physics.updateDrag(distance: 250, timestamp: 1.1)
-        let release = physics.release()
+        let preview = physics.displayDuration
+        let release = physics.release(at: 1.11)
 
-        try require(release.duration > mapper.duration(forDistance: 250), "velocity should project release forward")
+        try require(release.duration > preview, "fresh velocity should project release forward")
+        try require(release.duration.truncatingRemainder(dividingBy: 60) == 0, "release uses whole minutes")
         try require(physics.phase == .finished, "reduced-motion release should finish immediately")
+    }
+
+    private static func verifyStoppedReleaseMatchesPreview() throws {
+        for preset in FeelPreset.allCases {
+            for snappingEnabled in [false, true] {
+                var settings = DragPhysicsSettings.forPreset(preset)
+                settings.snappingEnabled = snappingEnabled
+                settings.reduceMotion = true
+                var physics = DragPhysics(settings: settings)
+
+                physics.begin(at: 1)
+                _ = physics.updateDrag(distance: 250, timestamp: 1.1)
+                let preview = physics.displayDuration
+                let release = physics.release(at: 1.4)
+
+                try require(
+                    preview.truncatingRemainder(dividingBy: 60) == 0,
+                    "drag preview uses whole minutes"
+                )
+                try require(
+                    release.duration == preview,
+                    "stopped release matches preview for \(preset.rawValue)"
+                )
+            }
+        }
+        try require(DurationText.dragSelection(60) == "1m", "one-minute drag label")
+        try require(DurationText.dragSelection(90 * 60) == "1h 30m", "hour-and-minute drag label")
     }
 
     private static func verifySpringSettlement() throws {
@@ -80,7 +109,7 @@ enum SelfCheck {
 
         physics.begin(at: 1)
         _ = physics.updateDrag(distance: 320, timestamp: 1.12)
-        let release = physics.release()
+        let release = physics.release(at: 1.13)
 
         var completed = false
         for _ in 0..<180 where !completed {

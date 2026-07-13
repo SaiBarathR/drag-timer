@@ -98,29 +98,13 @@ final class DragGestureController {
         guard state == .tracking else { return }
         cursor = pointer
 
-        // Dragged events may be coalesced or stay inside the status item's
-        // nested tracking loop. The final screen point is authoritative, so
-        // derive the distance here as a guaranteed last sample.
-        if let origin, var physics {
-            let dx = pointer.x - origin.x
-            let dy = pointer.y - origin.y
-            let finalDistance = hypot(dx, dy)
-            if finalDistance > physics.distance {
-                let didActivate = !didMoveEnough && finalDistance >= Self.activationDistance
-                let enteredSnap = physics.updateDrag(distance: finalDistance, timestamp: timestamp)
-                self.physics = physics
-                didMoveEnough = didMoveEnough || didActivate
-                updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap, timestamp: timestamp)
-            }
-        }
-
         guard didMoveEnough, var physics else {
             finish()
             onPopoverRequested()
             return
         }
 
-        let result = physics.release()
+        let result = physics.release(at: timestamp)
         self.physics = physics
         pendingDuration = result.duration
         state = .settling
@@ -251,13 +235,12 @@ final class DragGestureController {
         lastDetentIndex = detent
     }
 
-    /// Maps a duration onto a monotonic ladder of "nice" steps — every 30s
-    /// under 5 minutes, every minute to 15 minutes, every 5 minutes to an
+    /// Maps a duration onto a monotonic ladder of "nice" steps — every minute
+    /// to 15 minutes, every 5 minutes to an
     /// hour, every 15 minutes to 4 hours, then every 30 minutes. Crossing a
     /// rung means the user scrubbed past a value worth feeling.
     private static func detentIndex(for duration: TimeInterval) -> Int {
         let bands: [(upperBound: TimeInterval, step: TimeInterval)] = [
-            (5 * 60, 30),
             (15 * 60, 60),
             (60 * 60, 5 * 60),
             (4 * 60 * 60, 15 * 60),
