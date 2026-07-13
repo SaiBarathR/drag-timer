@@ -111,7 +111,10 @@ final class AppSettingsMigrationTests: XCTestCase {
         XCTAssertEqual(restored.routines.map(\.name), ["Cooking", "Morning", "Morning Copy"])
         let restoredMorning = try XCTUnwrap(restored.routines.first { $0.name == "Morning" })
         XCTAssertEqual(restoredMorning.timers.map(\.options.label), ["Tea", "Focus"])
-        XCTAssertEqual(restoredMorning.timers.map(\.duration), [4 * 60, 25 * 60])
+        XCTAssertEqual(
+            restoredMorning.timers.map(\.duration),
+            [TimeInterval(4 * 60), TimeInterval(25 * 60)]
+        )
         XCTAssertEqual(restoredMorning.timers[0].options.identity.color, .amber)
         XCTAssertTrue(restoredMorning.timers[0].options.loop)
         XCTAssertFalse(restoredMorning.timers[1].options.notify)

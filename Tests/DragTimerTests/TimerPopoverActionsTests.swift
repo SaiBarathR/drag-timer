@@ -50,7 +50,10 @@ final class TimerPopoverActionsTests: XCTestCase {
 
         action.start(routine)
 
-        XCTAssertEqual(captured.map(\.duration), [5 * 60, 15 * 60])
+        XCTAssertEqual(
+            captured.map(\.duration),
+            [TimeInterval(5 * 60), TimeInterval(15 * 60)]
+        )
         XCTAssertEqual(captured.map(\.options.label), ["Coffee", "Journal"])
         XCTAssertTrue(captured.allSatisfy { $0.origin == .routine })
     }
