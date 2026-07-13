@@ -1,6 +1,6 @@
 # Drag Timer
 
-Drag Timer is a native macOS menu-bar timer built around a single gesture: pull time out of the menu-bar icon, release it, and the timer starts. Distance chooses the duration, release speed adds momentum, and useful intervals snap into place with trackpad feedback.
+Drag Timer is a native macOS menu-bar timer built around a single gesture: pull time out of the menu-bar icon, release it, and the timer starts. Distance chooses a whole-minute duration, a moving release adds momentum, and useful intervals snap into place with trackpad feedback.
 
 It is a Swift/AppKit app for macOS 14 and later. It has no Dock icon and keeps timers in `~/Library/Application Support/DragTimer/timers.json`.
 
@@ -42,7 +42,7 @@ Verify the published SHA-256 checksum before opening a downloaded build when you
 ### Create and manage timers
 
 - Click the menu-bar icon to open the timer list. Clicking anywhere outside the popover closes it.
-- Press and drag away from the icon. The floating label shows both the duration and exact trigger time in real time.
+- Press and drag away from the icon. The floating label steps through whole minutes and shows the exact trigger time in real time. If you pause before releasing, the stable preview is the duration that starts.
 - Release to name and start the timer; this prompt can be disabled in Preferences. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
 - Open the `…` menu beside a timer to edit its label, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
@@ -82,7 +82,7 @@ The script applies an **ad-hoc** code signature to the bundle — required for t
 
 ## Verify
 
-The XCTest suite and deterministic checks cover duration mapping, inertial release, spring settlement, menu-bar countdown selection and formatting, maximum-duration persistence, Stop all behavior, timer defaults, and the looping-alert priority path.
+The XCTest suite and deterministic checks cover whole-minute duration mapping, moving and stopped releases, spring settlement, menu-bar countdown selection and formatting, maximum-duration persistence, Stop all behavior, timer defaults, and the looping-alert priority path.
 
 ```sh
 swift build

@@ -212,7 +212,7 @@ private final class DragSurfaceView: NSView {
     }
 
     private func updateLabelText(duration: TimeInterval, isSnapped: Bool) {
-        let durationString = DurationText.compact(duration)
+        let durationString = DurationText.dragSelection(duration)
         let fireTimeString = "at \(TimerDateText.fireTime(after: duration))"
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center

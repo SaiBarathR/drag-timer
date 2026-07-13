@@ -65,8 +65,14 @@ struct DragPhysicsSettings: Codable, Equatable {
 
     var sanitized: DragPhysicsSettings {
         var copy = self
-        copy.minimumDuration = max(1, minimumDuration)
-        copy.maximumDuration = max(copy.minimumDuration + 1, maximumDuration)
+        copy.minimumDuration = max(
+            DragDurationGrid.step,
+            (minimumDuration / DragDurationGrid.step).rounded(.up) * DragDurationGrid.step
+        )
+        copy.maximumDuration = max(
+            copy.minimumDuration,
+            (maximumDuration / DragDurationGrid.step).rounded(.down) * DragDurationGrid.step
+        )
         copy.referenceDistance = max(80, referenceDistance)
         copy.gamma = max(0.5, gamma)
         copy.inertiaStrength = max(0, inertiaStrength)
@@ -74,6 +80,15 @@ struct DragPhysicsSettings: Codable, Equatable {
         copy.springDamping = max(0, springDamping)
         copy.snapTolerance = max(1, snapTolerance)
         return copy
+    }
+}
+
+enum DragDurationGrid {
+    static let step: TimeInterval = 60
+
+    static func nearest(to duration: TimeInterval, settings: DragPhysicsSettings) -> TimeInterval {
+        let stepped = (duration / step).rounded() * step
+        return min(max(stepped, settings.minimumDuration), settings.maximumDuration)
     }
 }
 
@@ -127,6 +142,11 @@ struct DragReleaseResult: Equatable {
 }
 
 struct DragPhysics {
+    /// Momentum older than this no longer represents a throw. Without this
+    /// cutoff, holding the pointer still retained the last positive velocity
+    /// indefinitely and mouse-up increased an already-stable preview.
+    private static let releaseVelocityLifetime: TimeInterval = 0.12
+
     enum Phase: Equatable {
         case idle
         case dragging
@@ -178,8 +198,11 @@ struct DragPhysics {
         let newDistance = max(0, distance)
         if let lastTimestamp {
             let elapsed = timestamp - lastTimestamp
-            if elapsed > 0.001 && elapsed < 0.25 {
-                let instantaneousVelocity = (newDistance - lastDistance) / elapsed
+            let distanceDelta = newDistance - lastDistance
+            if abs(distanceDelta) < 0.5 || elapsed >= Self.releaseVelocityLifetime {
+                velocity = 0
+            } else if elapsed > 0.001 {
+                let instantaneousVelocity = distanceDelta / elapsed
                 velocity = (velocity * 0.68) + (instantaneousVelocity * 0.32)
             }
         }
@@ -192,11 +215,11 @@ struct DragPhysics {
         let snap = SnapGrid.nearest(to: rawDuration, settings: settings)
         let crossedIntoSnap = snap != nil && snap != activeSnap
         activeSnap = snap
-        displayDuration = snap ?? rawDuration
+        displayDuration = DragDurationGrid.nearest(to: snap ?? rawDuration, settings: settings)
         return crossedIntoSnap
     }
 
-    mutating func release() -> DragReleaseResult {
+    mutating func release(at timestamp: TimeInterval) -> DragReleaseResult {
         guard phase == .dragging else {
             return DragReleaseResult(
                 duration: displayDuration,
@@ -205,10 +228,31 @@ struct DragPhysics {
             )
         }
 
-        let effectiveDistance = distance + max(0, velocity) * settings.inertiaStrength
-        let projectedDuration = mapper.duration(forDistance: effectiveDistance)
-        let snap = SnapGrid.nearest(to: projectedDuration, settings: settings)
-        let finalDuration = snap ?? projectedDuration
+        let velocityAge = max(0, timestamp - (lastTimestamp ?? timestamp))
+        let releaseVelocity: Double
+        if velocityAge < Self.releaseVelocityLifetime {
+            let freshness = 1 - (velocityAge / Self.releaseVelocityLifetime)
+            releaseVelocity = velocity * freshness
+        } else {
+            releaseVelocity = 0
+        }
+
+        let snap: TimeInterval?
+        let finalDuration: TimeInterval
+        if releaseVelocity > 0, settings.inertiaStrength > 0 {
+            let effectiveDistance = distance + releaseVelocity * settings.inertiaStrength
+            let projectedDuration = mapper.duration(forDistance: effectiveDistance)
+            snap = SnapGrid.nearest(to: projectedDuration, settings: settings)
+            finalDuration = DragDurationGrid.nearest(
+                to: snap ?? projectedDuration,
+                settings: settings
+            )
+        } else {
+            // No fresh throw means the last preview is authoritative. Reusing
+            // it directly also prevents rounding or snap recalculation drift.
+            snap = activeSnap
+            finalDuration = displayDuration
+        }
 
         activeSnap = snap
         targetDuration = finalDuration
@@ -273,6 +317,23 @@ enum DurationText {
             return String(format: "%dh %02dm", hours, minutes)
         }
         return String(format: "%dm %02ds", minutes, seconds)
+    }
+
+    /// Dragging selects whole minutes, so its preview should not imply that a
+    /// seconds-level value will be committed. Active countdowns continue to
+    /// use `compact` so users can still see them ticking down precisely.
+    static func dragSelection(_ duration: TimeInterval) -> String {
+        let totalMinutes = max(0, Int((duration / 60).rounded()))
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+
+        if hours > 0, minutes > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        if hours > 0 {
+            return "\(hours)h"
+        }
+        return "\(totalMinutes)m"
     }
 }
 
