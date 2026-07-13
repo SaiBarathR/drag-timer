@@ -29,17 +29,22 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         remove(timerID: timer.id)
         guard timer.notify else { return }
 
-        let content = UNMutableNotificationContent()
-        content.title = "Timer finished"
-        content.body = timer.label
-        content.sound = .default
-
         let interval = max(1, timer.fireDate.timeIntervalSinceNow)
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
         let request = UNNotificationRequest(
             identifier: identifier(for: timer.id),
-            content: content,
+            content: content(for: timer),
             trigger: trigger
+        )
+        center.add(request) { _ in }
+    }
+
+    func deliverImmediately(_ timer: TimerRecord) {
+        guard let center, timer.notify else { return }
+        let request = UNNotificationRequest(
+            identifier: identifier(for: timer.id),
+            content: content(for: timer),
+            trigger: nil
         )
         center.add(request) { _ in }
     }
@@ -51,6 +56,14 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
     private func identifier(for timerID: UUID) -> String {
         "com.dragtimer.timer.\(timerID.uuidString)"
+    }
+
+    private func content(for timer: TimerRecord) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Timer finished"
+        content.body = timer.label
+        content.sound = .default
+        return content
     }
 
     func userNotificationCenter(

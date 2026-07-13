@@ -68,6 +68,19 @@ final class TimerEngine: ObservableObject {
         return record
     }
 
+    @discardableResult
+    func createTimer(fireDate: Date, options: TimerOptions) -> TimerRecord {
+        let now = Date()
+        let record = TimerRecord(createdAt: now, fireDate: fireDate, options: options)
+        let isPastDue = fireDate <= now
+        insert(record, scheduleNotification: !isPastDue)
+        if isPastDue {
+            notificationService.deliverImmediately(record)
+            handleSchedulerFire()
+        }
+        return record
+    }
+
     func update(_ timer: TimerRecord) {
         guard let index = timers.firstIndex(where: { $0.id == timer.id }) else { return }
 
