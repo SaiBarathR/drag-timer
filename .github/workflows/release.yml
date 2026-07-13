@@ -25,7 +25,10 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           archive="dist/Drag-Timer-${version}-macos.zip"
           ditto -c -k --sequesterRsrc --keepParent "dist/Drag Timer.app" "$archive"
-          shasum -a 256 "$archive" > dist/SHA256SUMS.txt
+          (
+            cd dist
+            shasum -a 256 "$(basename "$archive")" > SHA256SUMS.txt
+          )
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
