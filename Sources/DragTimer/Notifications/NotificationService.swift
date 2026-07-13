@@ -1,8 +1,35 @@
+import AppKit
+import Combine
 import Foundation
 import UserNotifications
 
-final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
+enum NotificationTimerAction: String {
+    case snooze
+    case markDone
+    case restart
+}
+
+enum NotificationPermissionState: Equatable {
+    case unavailable
+    case checking
+    case notDetermined
+    case denied
+    case authorized
+    case provisional
+}
+
+final class NotificationService: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
+    @Published private(set) var permissionState: NotificationPermissionState = .checking
+
     private let center: UNUserNotificationCenter?
+    private var actionHandler: ((UUID, NotificationTimerAction) -> Void)?
+    private var queuedResponses: [(UUID, NotificationTimerAction)] = []
+
+    private static let categoryIdentifier = "DRAG_TIMER_EXPIRED"
+    private static let timerIDKey = "timerID"
+    static let systemSettingsURL = URL(
+        string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+    )!
 
     init(center: UNUserNotificationCenter? = nil) {
         if let center {
@@ -17,11 +44,59 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         }
         super.init()
         self.center?.delegate = self
+        registerActions()
+        refreshAuthorizationStatus()
+    }
+
+    func setActionHandler(_ handler: @escaping (UUID, NotificationTimerAction) -> Void) {
+        actionHandler = handler
+        let responses = queuedResponses
+        queuedResponses.removeAll()
+        for (timerID, action) in responses {
+            handler(timerID, action)
+        }
     }
 
     func requestAuthorization() {
-        guard let center else { return }
-        center.requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+        guard let center else {
+            permissionState = .unavailable
+            return
+        }
+        center.requestAuthorization(options: [.alert, .badge, .sound]) { [weak self] _, _ in
+            self?.refreshAuthorizationStatus()
+        }
+    }
+
+    func refreshAuthorizationStatus() {
+        guard let center else {
+            permissionState = .unavailable
+            return
+        }
+        center.getNotificationSettings { [weak self] settings in
+            let state = Self.permissionState(for: settings.authorizationStatus)
+            DispatchQueue.main.async {
+                self?.permissionState = state
+            }
+        }
+    }
+
+    func openSystemSettings() {
+        NSWorkspace.shared.open(Self.systemSettingsURL)
+    }
+
+    static func permissionState(for status: UNAuthorizationStatus) -> NotificationPermissionState {
+        switch status {
+        case .notDetermined:
+            return .notDetermined
+        case .denied:
+            return .denied
+        case .authorized:
+            return .authorized
+        case .provisional:
+            return .provisional
+        @unknown default:
+            return .unavailable
+        }
     }
 
     func schedule(_ timer: TimerRecord) {
@@ -63,7 +138,25 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         content.title = "Timer finished"
         content.body = timer.label
         content.sound = .default
+        content.categoryIdentifier = Self.categoryIdentifier
+        content.userInfo[Self.timerIDKey] = timer.id.uuidString
         return content
+    }
+
+    private func registerActions() {
+        guard let center else { return }
+        let actions = [
+            UNNotificationAction(identifier: NotificationTimerAction.snooze.rawValue, title: "Snooze"),
+            UNNotificationAction(identifier: NotificationTimerAction.markDone.rawValue, title: "Mark done"),
+            UNNotificationAction(identifier: NotificationTimerAction.restart.rawValue, title: "Restart")
+        ]
+        center.setNotificationCategories([
+            UNNotificationCategory(
+                identifier: Self.categoryIdentifier,
+                actions: actions,
+                intentIdentifiers: []
+            )
+        ])
     }
 
     func userNotificationCenter(
@@ -75,5 +168,26 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         // AudioAlertPlayer already provides the sound. Presenting the
         // notification's own sound on top of it would double the alert.
         completionHandler([.banner, .list])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        defer { completionHandler() }
+        guard let rawTimerID = response.notification.request.content.userInfo[Self.timerIDKey] as? String,
+              let timerID = UUID(uuidString: rawTimerID),
+              let action = NotificationTimerAction(rawValue: response.actionIdentifier) else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let actionHandler {
+                actionHandler(timerID, action)
+            } else {
+                queuedResponses.append((timerID, action))
+            }
+        }
     }
 }

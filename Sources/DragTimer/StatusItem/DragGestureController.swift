@@ -55,7 +55,10 @@ final class DragGestureController {
         lastDetentIndex = nil
         lastHapticTimestamp = 0
 
-        let overlay = DragOverlayWindowController()
+        let overlay = DragOverlayWindowController(
+            countdownScale: settings.countdownScale,
+            highContrast: TimerAppearancePolicy.highContrast(settings: settings)
+        )
         self.overlay = overlay
         overlay.show()
         // Render one frame immediately. The display link owns the steady-state

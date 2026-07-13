@@ -11,9 +11,23 @@ enum StatusItemGeometry {
     static let textTrailing: CGFloat = 7
     static let countdownFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
 
+    static func countdownFont(for scale: CountdownScale) -> NSFont {
+        let weight: NSFont.Weight
+        switch scale {
+        case .standard: weight = .medium
+        case .large: weight = .semibold
+        case .extraLarge: weight = .bold
+        }
+        return NSFont.monospacedDigitSystemFont(ofSize: 13, weight: weight)
+    }
+
     static func width(for countdownText: String?) -> CGFloat {
+        width(for: countdownText, scale: .standard)
+    }
+
+    static func width(for countdownText: String?, scale: CountdownScale) -> CGFloat {
         guard let countdownText else { return collapsedWidth }
-        let textWidth = measuredWidth(of: countdownText)
+        let textWidth = measuredWidth(of: countdownText, scale: scale)
         return ceil(textLeading + textWidth + textTrailing)
     }
 
@@ -43,6 +57,10 @@ enum StatusItemGeometry {
     }
 
     static func measuredWidth(of text: String) -> CGFloat {
-        (text as NSString).size(withAttributes: [.font: countdownFont]).width
+        measuredWidth(of: text, scale: .standard)
+    }
+
+    static func measuredWidth(of text: String, scale: CountdownScale) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: countdownFont(for: scale)]).width
     }
 }

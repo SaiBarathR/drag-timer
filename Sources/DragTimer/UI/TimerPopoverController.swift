@@ -55,6 +55,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let timerEngine: TimerEngine
     private let onOpenSettings: () -> Void
+    private let onOpenHistory: () -> Void
     private let onPopoverVisibilityChanged: (Bool) -> Void
     private var hostingController: NSHostingController<TimerListView>!
     private weak var anchorView: NSView?
@@ -68,12 +69,15 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     init(
         timerEngine: TimerEngine,
         settings: AppSettings,
+        updateChecker: UpdateChecker? = nil,
         onOpenSettings: @escaping () -> Void,
+        onOpenHistory: @escaping () -> Void = {},
         onPopoverVisibilityChanged: @escaping (Bool) -> Void = { _ in },
         animationsEnabled: Bool? = nil
     ) {
         self.timerEngine = timerEngine
         self.onOpenSettings = onOpenSettings
+        self.onOpenHistory = onOpenHistory
         self.onPopoverVisibilityChanged = onPopoverVisibilityChanged
         super.init()
 
@@ -85,8 +89,12 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
             rootView: TimerListView(
                 timerEngine: timerEngine,
                 settings: settings,
+                updateChecker: updateChecker ?? UpdateChecker(settings: settings),
                 onOpenSettings: { [weak self] in
                     self?.openSettings()
+                },
+                onOpenHistory: { [weak self] in
+                    self?.openHistory()
                 },
                 onStopAll: { [weak self] in
                     self?.actions.stopAll()
@@ -142,6 +150,11 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private func openSettings() {
         popover.performClose(nil)
         onOpenSettings()
+    }
+
+    private func openHistory() {
+        popover.performClose(nil)
+        onOpenHistory()
     }
 
     private func prepareForPresentation() {
@@ -221,7 +234,9 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
 private struct TimerListView: View {
     @ObservedObject var timerEngine: TimerEngine
     @ObservedObject var settings: AppSettings
+    @ObservedObject var updateChecker: UpdateChecker
     let onOpenSettings: () -> Void
+    let onOpenHistory: () -> Void
     let onStopAll: () -> Void
 
     @State private var now = Date()
@@ -234,8 +249,8 @@ private struct TimerListView: View {
         VStack(spacing: 0) {
             quickStart
 
-            if let activeAlert = timerEngine.activeAlert {
-                alertBanner(for: activeAlert)
+            if let expiry = timerEngine.currentExpiry {
+                expiryCard(for: expiry)
             }
 
             mainContent
@@ -246,6 +261,11 @@ private struct TimerListView: View {
 
             Divider()
             footer
+
+            if let release = updateChecker.availableRelease {
+                Divider()
+                updateRow(release)
+            }
         }
         .frame(width: 346)
         .frame(minHeight: TimerPopoverGeometry.minimumContentHeight)
@@ -286,25 +306,25 @@ private struct TimerListView: View {
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 4), spacing: 7) {
-                ForEach(settings.quickStartMinutes, id: \.self) { minutes in
+            LazyVGrid(columns: quickStartColumns, spacing: 7) {
+                ForEach(settings.quickStartPresets) { preset in
                     Button {
-                        timerEngine.createTimer(
-                            duration: TimeInterval(minutes * 60),
-                            options: settings.defaultOptions()
-                        )
+                        timerEngine.createTimer(template: preset.timerTemplate())
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 8, weight: .bold))
-                            Text(quickStartLabel(minutes))
+                            Image(systemName: preset.identity.symbolName)
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(preset.identity.color.color)
+                            Text(quickStartLabel(preset))
                                 .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .accessibilityLabel("Start a \(quickStartAccessibilityLabel(minutes)) timer")
+                    .accessibilityLabel("Start \(quickStartAccessibilityLabel(preset))")
+                    .help(quickStartAccessibilityLabel(preset))
                 }
             }
         }
@@ -313,22 +333,45 @@ private struct TimerListView: View {
         .padding(.bottom, 14)
     }
 
-    private func alertBanner(for timer: TimerRecord) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "bell.fill")
-                .foregroundStyle(.red)
-            Text("\(timer.label) is ringing")
-                .font(.system(size: 12, weight: .medium))
-                .lineLimit(1)
-            Spacer()
-            Button("Stop sound") {
-                timerEngine.stopActiveAlert()
+    private func expiryCard(for expiry: PendingExpiry) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 9) {
+                TimerIdentityBead(identity: expiry.timer.resolvedIdentity, size: 26, urgent: true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(expiry.timer.label) finished")
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                    if timerEngine.pendingExpiries.count > 1 {
+                        Text("1 of \(timerEngine.pendingExpiries.count)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Button {
+                    timerEngine.silenceExpiryAudio()
+                } label: { Image(systemName: "speaker.slash.fill") }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop sound")
+                .help("Stop sound")
             }
-            .controlSize(.small)
+            HStack(spacing: 7) {
+                Button("Snooze \(expiry.timer.snoozeMinutes)m") {
+                    timerEngine.snoozeExpiry(id: expiry.id)
+                }
+                Button("Restart") {
+                    timerEngine.restartExpiry(id: expiry.id)
+                }
+                Button("Mark done") {
+                    timerEngine.markExpiryDone(id: expiry.id)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Color.red.opacity(0.08))
+        .padding(.vertical, 11)
+        .background(Color.red.opacity(TimerAppearancePolicy.highContrast(settings: settings) ? 0.16 : 0.08))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(expiry.timer.label) finished, 1 of \(timerEngine.pendingExpiries.count)")
     }
 
     private var emptyState: some View {
@@ -355,7 +398,14 @@ private struct TimerListView: View {
                     TimerRow(
                         timer: timer,
                         now: now,
+                        countdownScale: settings.countdownScale,
+                        urgentThreshold: settings.urgentThreshold,
+                        highContrast: TimerAppearancePolicy.highContrast(settings: settings),
+                        isPinned: settings.pinnedTimerID == timer.id,
                         onEdit: { timerBeingEdited = timer },
+                        onPin: {
+                            settings.pinnedTimerID = settings.pinnedTimerID == timer.id ? nil : timer.id
+                        },
                         onPauseResume: {
                             timer.isPaused
                                 ? timerEngine.resume(id: timer.id)
@@ -376,7 +426,7 @@ private struct TimerListView: View {
 
     private var footer: some View {
         HStack {
-            if !timerEngine.timers.isEmpty || timerEngine.activeAlert != nil {
+            if !timerEngine.timers.isEmpty {
                 Button("Stop all") {
                     onStopAll()
                 }
@@ -388,11 +438,21 @@ private struct TimerListView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Drag the menu bar icon to start")
+                Text(timerEngine.pendingExpiries.isEmpty
+                    ? "Drag the menu bar icon to start"
+                    : "Finished timer needs action")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            Button(action: onOpenHistory) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open timer history")
+            .help("History")
+
             Button {
                 NSApp.terminate(nil)
             } label: {
@@ -414,6 +474,25 @@ private struct TimerListView: View {
         .padding(.vertical, 12)
     }
 
+    private func updateRow(_ release: GitHubRelease) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down.circle")
+                .foregroundStyle(.secondary)
+            Text("Version \(displayVersion(release.tagName)) available")
+                .font(.caption)
+            Spacer()
+            Button("Open") { updateChecker.openRelease(release) }
+                .controlSize(.small)
+            Button {
+                updateChecker.dismissAvailableRelease()
+            } label: { Image(systemName: "xmark") }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss update notice")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
+
     private var timerSummary: String {
         let paused = timerEngine.timers.filter(\.isPaused).count
         let running = timerEngine.timers.count - paused
@@ -423,26 +502,51 @@ private struct TimerListView: View {
         return "\(running) running, \(paused) paused"
     }
 
-    private func quickStartLabel(_ minutes: Int) -> String {
+    private var quickStartColumns: [GridItem] {
+        let labeled = settings.quickStartPresets.contains { !$0.label.isEmpty }
+        let count = labeled || settings.countdownScale != .standard ? 2 : 4
+        return Array(repeating: GridItem(.flexible(), spacing: 7), count: count)
+    }
+
+    private func durationLabel(_ minutes: Int) -> String {
         if minutes >= 60, minutes.isMultiple(of: 60) {
             return "\(minutes / 60) hr"
         }
         return "\(minutes) min"
     }
 
-    private func quickStartAccessibilityLabel(_ minutes: Int) -> String {
+    private func quickStartLabel(_ preset: QuickStartPreset) -> String {
+        let minutes = Int((preset.duration / 60).rounded())
+        return preset.label.isEmpty ? durationLabel(minutes) : "\(preset.label) · \(durationLabel(minutes))"
+    }
+
+    private func quickStartAccessibilityLabel(_ preset: QuickStartPreset) -> String {
+        let minutes = Int((preset.duration / 60).rounded())
         if minutes >= 60, minutes.isMultiple(of: 60) {
             let hours = minutes / 60
-            return "\(hours) hour\(hours == 1 ? "" : "s")"
+            return preset.label.isEmpty
+                ? "a \(hours)-hour timer"
+                : "\(preset.label), \(hours)-hour timer"
         }
-        return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+        return preset.label.isEmpty
+            ? "a \(minutes)-minute timer"
+            : "\(preset.label), \(minutes)-minute timer"
+    }
+
+    private func displayVersion(_ tag: String) -> String {
+        tag.first?.lowercased() == "v" ? String(tag.dropFirst()) : tag
     }
 }
 
 private struct TimerRow: View {
     let timer: TimerRecord
     let now: Date
+    let countdownScale: CountdownScale
+    let urgentThreshold: UrgentThreshold
+    let highContrast: Bool
+    let isPinned: Bool
     let onEdit: () -> Void
+    let onPin: () -> Void
     let onPauseResume: () -> Void
     let onReset: () -> Void
     let onSnooze: () -> Void
@@ -452,16 +556,20 @@ private struct TimerRow: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .stroke(Color.accentColor.opacity(0.25), lineWidth: 2)
+                    .stroke(timer.resolvedIdentity.color.color.opacity(0.25), lineWidth: highContrast ? 3 : 2)
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(timer.isPaused ? Color.secondary : Color.accentColor,
-                            style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(urgent ? Color.red : (timer.isPaused ? Color.secondary : timer.resolvedIdentity.color.color),
+                            style: StrokeStyle(lineWidth: highContrast ? 3 : 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 if timer.isPaused {
                     Image(systemName: "pause.fill")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: urgent ? "exclamationmark" : timer.resolvedIdentity.symbolName)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(urgent ? Color.red : timer.resolvedIdentity.color.color)
                 }
             }
             .frame(width: 28, height: 28)
@@ -470,11 +578,23 @@ private struct TimerRow: View {
                 Text(timer.label)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
+                    .overlay(alignment: .trailing) {
+                        if isPinned {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.secondary)
+                                .offset(x: 13)
+                        }
+                    }
                 Text(timer.isPaused
                     ? "Paused · \(DurationText.compact(timer.remaining(at: now)))"
                     : DurationText.compact(timer.remaining(at: now)))
-                    .font(.system(size: 12, weight: .regular, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .font(.system(
+                        size: 12 * countdownScale.factor,
+                        weight: urgent ? .semibold : .regular,
+                        design: .monospaced
+                    ))
+                    .foregroundStyle(urgent ? Color.red : Color.secondary)
             }
 
             Spacer(minLength: 4)
@@ -485,6 +605,8 @@ private struct TimerRow: View {
                 }
 
                 Menu {
+                    Button(isPinned ? "Unpin from menu bar" : "Pin to menu bar", action: onPin)
+                    Divider()
                     Button("Edit timer", action: onEdit)
                     Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
                     Button("Reset timer", action: onReset)
@@ -530,6 +652,10 @@ private struct TimerRow: View {
     private var progress: CGFloat {
         CGFloat(timer.progress(at: now))
     }
+
+    private var urgent: Bool {
+        TimerAppearancePolicy.isUrgent(timer, at: now, threshold: urgentThreshold)
+    }
 }
 
 private struct TimerEditorView: View {
@@ -544,6 +670,8 @@ private struct TimerEditorView: View {
     @State private var soundName: String
     @State private var volume: Double
     @State private var snoozeMinutes: Int
+    @State private var identityColor: TimerColorToken
+    @State private var identitySymbol: String
 
     init(timer: TimerRecord, onSave: @escaping (TimerRecord) -> Void) {
         self.timer = timer
@@ -554,6 +682,8 @@ private struct TimerEditorView: View {
         _soundName = State(initialValue: AlertSound.normalizedName(timer.soundName))
         _volume = State(initialValue: timer.volume)
         _snoozeMinutes = State(initialValue: timer.snoozeMinutes)
+        _identityColor = State(initialValue: timer.resolvedIdentity.color)
+        _identitySymbol = State(initialValue: timer.resolvedIdentity.symbolName)
     }
 
     var body: some View {
@@ -581,6 +711,14 @@ private struct TimerEditorView: View {
                 Toggle("Loop sound", isOn: $loop)
                 Toggle("Show notification", isOn: $notify)
                 Stepper("Snooze for \(snoozeMinutes) min", value: $snoozeMinutes, in: 1...60)
+                Picker("Color", selection: $identityColor) {
+                    ForEach(TimerColorToken.allCases) { Text($0.displayName).tag($0) }
+                }
+                Picker("Symbol", selection: $identitySymbol) {
+                    ForEach(TimerIdentity.allowedSymbols, id: \.self) { name in
+                        Label(name, systemImage: name).tag(name)
+                    }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 10)
@@ -596,6 +734,7 @@ private struct TimerEditorView: View {
                     updated.loop = loop
                     updated.notify = notify
                     updated.snoozeMinutes = snoozeMinutes
+                    updated.identity = TimerIdentity(color: identityColor, symbolName: identitySymbol)
                     onSave(updated)
                     dismiss()
                 }
