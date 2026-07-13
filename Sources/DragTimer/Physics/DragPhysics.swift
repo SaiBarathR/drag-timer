@@ -273,3 +273,20 @@ enum DurationText {
         return String(format: "%dm %02ds", minutes, seconds)
     }
 }
+
+enum TimerDateText {
+    private static let fireTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    static func fireTime(after duration: TimeInterval, now: Date = Date()) -> String {
+        fireTime(for: now.addingTimeInterval(max(0, duration.rounded())))
+    }
+
+    static func fireTime(for date: Date) -> String {
+        fireTimeFormatter.string(from: date)
+    }
+}

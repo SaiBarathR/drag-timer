@@ -43,6 +43,10 @@ private struct SettingsView: View {
         ScrollView {
             Form {
                 Section("Defaults for new timers") {
+                    Toggle("Ask for a label after dragging", isOn: $settings.askForLabelAfterDrag)
+                    Text("When off, releasing a drag starts the timer immediately with the default name.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     TextField("Default name", text: $settings.defaultLabel)
                     Picker("Sound", selection: $settings.defaultSoundName) {
                         ForEach(AlertSound.allCases) { sound in

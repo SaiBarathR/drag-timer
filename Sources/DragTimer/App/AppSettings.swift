@@ -14,6 +14,7 @@ final class AppSettings: ObservableObject {
         var defaultLabel: String?
         var defaultSnoozeMinutes: Int?
         var quickStartMinutes: [Int]?
+        var askForLabelAfterDrag: Bool?
         var firePastDueOnWake: Bool
     }
 
@@ -31,6 +32,7 @@ final class AppSettings: ObservableObject {
     @Published var defaultLabel: String { didSet { persist() } }
     @Published var defaultSnoozeMinutes: Int { didSet { persist() } }
     @Published private(set) var quickStartMinutes: [Int]
+    @Published var askForLabelAfterDrag: Bool { didSet { persist() } }
     @Published var firePastDueOnWake: Bool { didSet { persist() } }
 
     static let defaultQuickStartMinutes = [5, 10, 15, 30, 60, 120, 180, 240]
@@ -59,6 +61,7 @@ final class AppSettings: ObservableObject {
             quickStartMinutes = Self.sanitizeQuickStartMinutes(
                 stored.quickStartMinutes ?? Self.defaultQuickStartMinutes
             )
+            askForLabelAfterDrag = stored.askForLabelAfterDrag ?? true
             firePastDueOnWake = stored.firePastDueOnWake
         } else {
             preset = .snappy
@@ -72,6 +75,7 @@ final class AppSettings: ObservableObject {
             defaultLabel = "Timer"
             defaultSnoozeMinutes = 5
             quickStartMinutes = Self.defaultQuickStartMinutes
+            askForLabelAfterDrag = true
             firePastDueOnWake = true
         }
     }
@@ -126,6 +130,7 @@ final class AppSettings: ObservableObject {
             defaultLabel: defaultLabel,
             defaultSnoozeMinutes: defaultSnoozeMinutes,
             quickStartMinutes: quickStartMinutes,
+            askForLabelAfterDrag: askForLabelAfterDrag,
             firePastDueOnWake: firePastDueOnWake
         )
         guard let data = try? JSONEncoder().encode(stored) else { return }
