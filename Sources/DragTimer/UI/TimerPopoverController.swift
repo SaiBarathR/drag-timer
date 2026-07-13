@@ -11,11 +11,52 @@ struct TimerPopoverActions {
     }
 }
 
+enum TimerRowInlineAction: Hashable {
+    case delete
+    case reset
+    case pause
+    case resume
+
+    var symbolName: String {
+        switch self {
+        case .delete: return "trash"
+        case .reset: return "arrow.counterclockwise"
+        case .pause: return "pause.fill"
+        case .resume: return "play.fill"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .delete: return "Delete timer"
+        case .reset: return "Reset timer"
+        case .pause: return "Pause timer"
+        case .resume: return "Resume timer"
+        }
+    }
+}
+
+enum TimerRowActionPolicy {
+    static func inlineActions(isPaused: Bool) -> [TimerRowInlineAction] {
+        isPaused ? [.delete, .reset, .resume] : [.pause]
+    }
+}
+
+enum TimerPopoverGeometry {
+    /// The measured one-row fitting height before introducing a minimum.
+    static let previousMinimumContentHeight: CGFloat = 199
+    static let minimumHeightMultiplier: CGFloat = 1.75
+    static let minimumContentHeight = ceil(
+        previousMinimumContentHeight * minimumHeightMultiplier
+    )
+}
+
 final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let timerEngine: TimerEngine
     private let onOpenSettings: () -> Void
     private let onPopoverVisibilityChanged: (Bool) -> Void
+    private var hostingController: NSHostingController<TimerListView>!
     private weak var anchorView: NSView?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -28,7 +69,8 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         timerEngine: TimerEngine,
         settings: AppSettings,
         onOpenSettings: @escaping () -> Void,
-        onPopoverVisibilityChanged: @escaping (Bool) -> Void = { _ in }
+        onPopoverVisibilityChanged: @escaping (Bool) -> Void = { _ in },
+        animationsEnabled: Bool? = nil
     ) {
         self.timerEngine = timerEngine
         self.onOpenSettings = onOpenSettings
@@ -36,9 +78,10 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         super.init()
 
         popover.behavior = .transient
-        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        popover.animates = animationsEnabled
+            ?? !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.delegate = self
-        popover.contentViewController = NSHostingController(
+        hostingController = NSHostingController(
             rootView: TimerListView(
                 timerEngine: timerEngine,
                 settings: settings,
@@ -50,22 +93,28 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                 }
             )
         )
+        popover.contentViewController = hostingController
     }
 
     deinit {
         stopOutsideClickMonitoring()
     }
 
-    func toggle(relativeTo anchorView: NSView) {
+    func toggle(relativeTo anchorView: NSView, positioningRect: NSRect) {
         if popover.isShown {
             popover.performClose(nil)
         } else {
             self.anchorView = anchorView
-            // Stabilize the anchor before AppKit calculates the popover frame.
             onPopoverVisibilityChanged(true)
-            popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+            prepareForPresentation()
+            popover.show(relativeTo: positioningRect, of: anchorView, preferredEdge: .minY)
             startOutsideClickMonitoring()
         }
+    }
+
+    func updatePositioningRect(_ positioningRect: NSRect, relativeTo anchorView: NSView) {
+        guard popover.isShown, self.anchorView === anchorView else { return }
+        popover.positioningRect = positioningRect
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -74,9 +123,39 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         onPopoverVisibilityChanged(false)
     }
 
+    #if DEBUG
+    var currentContentSize: NSSize { popover.contentSize }
+    var currentFittingContentSize: NSSize { hostingController.view.fittingSize }
+    var currentPositioningRect: NSRect { popover.positioningRect }
+    var currentPopoverWindowFrame: NSRect? { hostingController.view.window?.frame }
+    var isShownForTesting: Bool { popover.isShown }
+
+    func prepareForPresentationForTesting() {
+        prepareForPresentation()
+    }
+
+    func closeForTesting() {
+        popover.close()
+    }
+    #endif
+
     private func openSettings() {
         popover.performClose(nil)
         onOpenSettings()
+    }
+
+    private func prepareForPresentation() {
+        let contentView = hostingController.view
+        contentView.needsLayout = true
+        contentView.layoutSubtreeIfNeeded()
+        let fittingSize = contentView.fittingSize
+        guard fittingSize.width.isFinite,
+              fittingSize.height.isFinite,
+              fittingSize.width > 0,
+              fittingSize.height > 0 else {
+            return
+        }
+        popover.contentSize = fittingSize
     }
 
     /// A custom status-item view owns its own mouse tracking loop, which means
@@ -159,16 +238,17 @@ private struct TimerListView: View {
                 alertBanner(for: activeAlert)
             }
 
-            if timerEngine.timers.isEmpty {
-                emptyState
-            } else {
-                timerList
-            }
+            mainContent
+                .frame(
+                    maxHeight: .infinity,
+                    alignment: timerEngine.timers.isEmpty ? .center : .top
+                )
 
             Divider()
             footer
         }
         .frame(width: 346)
+        .frame(minHeight: TimerPopoverGeometry.minimumContentHeight)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             isVisible = true
@@ -187,6 +267,15 @@ private struct TimerListView: View {
             TimerEditorView(timer: timer) { updatedTimer in
                 timerEngine.update(updatedTimer)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        if timerEngine.timers.isEmpty {
+            emptyState
+        } else {
+            timerList
         }
     }
 
@@ -390,29 +479,52 @@ private struct TimerRow: View {
 
             Spacer(minLength: 4)
 
-            Button(action: onPauseResume) {
-                Image(systemName: timer.isPaused ? "play.fill" : "pause.fill")
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(timer.isPaused ? "Resume timer" : "Pause timer")
+            HStack(spacing: 4) {
+                ForEach(TimerRowActionPolicy.inlineActions(isPaused: timer.isPaused), id: \.self) { action in
+                    inlineButton(for: action)
+                }
 
-            Menu {
-                Button("Edit timer", action: onEdit)
-                Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
-                Button("Reset timer", action: onReset)
-                Button("Snooze \(timer.snoozeMinutes) min", action: onSnooze)
-                Divider()
-                Button("Cancel timer", role: .destructive, action: onCancel)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .frame(width: 22, height: 22)
+                Menu {
+                    Button("Edit timer", action: onEdit)
+                    Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
+                    Button("Reset timer", action: onReset)
+                    Button("Snooze \(timer.snoozeMinutes) min", action: onSnooze)
+                    Divider()
+                    Button("Cancel timer", role: .destructive, action: onCancel)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 22, height: 22)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+    }
+
+    private func inlineButton(for action: TimerRowInlineAction) -> some View {
+        Button(role: action == .delete ? .destructive : nil) {
+            perform(action)
+        } label: {
+            Image(systemName: action.symbolName)
+                .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(action == .delete ? Color.red : Color.primary)
+        .accessibilityLabel(action.accessibilityLabel)
+        .help(action.accessibilityLabel)
+    }
+
+    private func perform(_ action: TimerRowInlineAction) {
+        switch action {
+        case .delete:
+            onCancel()
+        case .reset:
+            onReset()
+        case .pause, .resume:
+            onPauseResume()
+        }
     }
 
     private var progress: CGFloat {

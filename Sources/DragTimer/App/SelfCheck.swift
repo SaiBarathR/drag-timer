@@ -1,7 +1,9 @@
+import AppKit
 import Foundation
 
 /// Lightweight deterministic checks that work with Command Line Tools as well
-/// as full Xcode. They deliberately exercise only pure model code, never UI.
+/// as full Xcode. They exercise model and geometry invariants without
+/// presenting application UI.
 enum SelfCheck {
     private enum Failure: Error, CustomStringConvertible {
         case assertion(String)
@@ -143,18 +145,40 @@ enum SelfCheck {
             "day countdown format"
         )
         try require(MenuBarCountdown.text(forRemaining: 0.1) == "0:01", "countdown does not expire early")
+        let shortWidth = StatusItemGeometry.width(for: "4:00")
+        let sameLengthWidth = StatusItemGeometry.width(for: "9:59")
+        let fiveDigitWidth = StatusItemGeometry.width(for: "10:00")
+        let longHourWidth = StatusItemGeometry.width(for: "12h 59m")
+        let dayWidth = StatusItemGeometry.width(for: "1d 2h")
         try require(
-            StatusItemLayoutPolicy.mode(hasRunningTimer: true, isPopoverVisible: true) == .expanded,
-            "running timer uses expanded status layout"
+            StatusItemGeometry.width(for: nil) == StatusItemGeometry.collapsedWidth,
+            "icon-only status item uses collapsed width"
         )
+        try require(shortWidth == sameLengthWidth, "same-length countdowns keep a stable width")
+        try require(shortWidth < fiveDigitWidth, "five-digit countdown grows to fit its text")
+        try require(fiveDigitWidth < longHourWidth, "long hour countdown grows to fit its text")
+        try require(dayWidth < longHourWidth, "day countdown does not reserve unrelated hour width")
         try require(
-            StatusItemLayoutPolicy.mode(hasRunningTimer: false, isPopoverVisible: true) == .expanded,
-            "pausing while popover is open keeps its anchor expanded"
+            TimerPopoverGeometry.minimumContentHeight
+                == ceil(
+                    TimerPopoverGeometry.previousMinimumContentHeight
+                        * TimerPopoverGeometry.minimumHeightMultiplier
+                ),
+            "popover minimum height remains exactly seventy-five percent larger"
         )
-        try require(
-            StatusItemLayoutPolicy.mode(hasRunningTimer: false, isPopoverVisible: false) == .collapsed,
-            "paused timer collapses after popover closes"
+        try require(TimerPopoverGeometry.minimumContentHeight == 349, "popover minimum height")
+
+        let shortBounds = NSRect(x: 0, y: 0, width: shortWidth, height: 22)
+        let shortAnchor = StatusItemGeometry.popoverAnchorRect(in: shortBounds, hasCountdownLayout: true)
+        try require(shortAnchor.midX == 13, "countdown popover anchor follows the clock glyph")
+        try require(shortAnchor.midX != shortBounds.midX, "popover does not anchor to the whole status item")
+
+        let collapsedBounds = NSRect(x: 0, y: 0, width: StatusItemGeometry.collapsedWidth, height: 22)
+        let collapsedAnchor = StatusItemGeometry.popoverAnchorRect(
+            in: collapsedBounds,
+            hasCountdownLayout: false
         )
+        try require(collapsedAnchor.midX == collapsedBounds.midX, "icon-only anchor remains centered")
     }
 
     private static func verifyPersistenceRoundTrip() throws {
