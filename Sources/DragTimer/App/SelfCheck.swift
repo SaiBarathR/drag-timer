@@ -120,6 +120,7 @@ enum SelfCheck {
         settings.defaultLoop = true
         settings.defaultNotificationsEnabled = false
         settings.defaultSnoozeMinutes = 12
+        settings.askForLabelAfterDrag = false
         settings.setQuickStartMinutes([30, 5, 30, 120])
 
         let restored = AppSettings(defaults: defaults)
@@ -130,6 +131,7 @@ enum SelfCheck {
         try require(options.loop, "default loop persists")
         try require(!options.notify, "default notification preference persists")
         try require(options.snoozeMinutes == 12, "default snooze persists")
+        try require(!restored.askForLabelAfterDrag, "drag label prompt preference persists")
         try require(restored.quickStartMinutes == [5, 30, 120], "quick start presets persist and normalize")
         try require(
             TimerOptions(label: "Legacy", soundName: "Pulse").soundName == AlertSound.glass.rawValue,

@@ -88,7 +88,7 @@ private final class DragSurfaceView: NSView {
 
     private var appliedSnapState: Bool?
     private var lastTickCount = -1
-    private var labelWidth: CGFloat = 112
+    private var labelWidth: CGFloat = 132
 
     private enum Metrics {
         static let containerHeight: CGFloat = 44
@@ -100,7 +100,7 @@ private final class DragSurfaceView: NSView {
         static let tickHalfHeight: CGFloat = 3.5
         static let tickLeadingOffset: CGFloat = 26
         static let tickTrailingMargin: CGFloat = 32
-        static let labelHeight: CGFloat = 36
+        static let labelHeight: CGFloat = 58
     }
 
     private static var accentColor: NSColor { .controlAccentColor }
@@ -197,12 +197,12 @@ private final class DragSurfaceView: NSView {
     private func layoutLabel(cursor: CGPoint) {
         let labelHeight = Metrics.labelHeight
         let x = min(max(10, cursor.x - labelWidth / 2), max(10, bounds.width - labelWidth - 10))
-        let y = min(max(10, cursor.y - 58), max(10, bounds.height - labelHeight - 10))
+        let y = min(max(10, cursor.y - 80), max(10, bounds.height - labelHeight - 10))
         let labelFrame = CGRect(x: x, y: y, width: labelWidth, height: labelHeight)
         labelBackingLayer.frame = labelFrame
         labelBackingLayer.cornerRadius = labelHeight / 2
 
-        let textHeight: CGFloat = 20
+        let textHeight: CGFloat = 40
         labelLayer.frame = CGRect(
             x: labelFrame.minX,
             y: labelFrame.midY - textHeight / 2 - 1,
@@ -212,17 +212,37 @@ private final class DragSurfaceView: NSView {
     }
 
     private func updateLabelText(duration: TimeInterval, isSnapped: Bool) {
-        let text = NSAttributedString(
-            string: DurationText.compact(duration),
+        let durationString = DurationText.compact(duration)
+        let fireTimeString = "at \(TimerDateText.fireTime(after: duration))"
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineSpacing = 2
+        let text = NSMutableAttributedString(
+            string: durationString,
             attributes: [
                 .font: Self.labelFont,
-                .foregroundColor: isSnapped ? NSColor(white: 1, alpha: 1) : NSColor(white: 0.96, alpha: 1),
-                .kern: 0.4
+                .foregroundColor: isSnapped ? NSColor.white : NSColor(white: 0.96, alpha: 1),
+                .kern: 0.35,
+                .paragraphStyle: paragraph
             ]
         )
+        text.append(NSAttributedString(
+            string: "\n\(fireTimeString)",
+            attributes: [
+                .font: Self.fireTimeFont,
+                .foregroundColor: isSnapped
+                    ? NSColor.white.withAlphaComponent(0.88)
+                    : NSColor(white: 0.82, alpha: 1),
+                .kern: 0.2,
+                .paragraphStyle: paragraph
+            ]
+        ))
         labelLayer.string = text
-        let measuredWidth = ceil(text.size().width) + 44
-        labelWidth = max(104, measuredWidth)
+        let measuredWidth = max(
+            ceil((durationString as NSString).size(withAttributes: [.font: Self.labelFont]).width),
+            ceil((fireTimeString as NSString).size(withAttributes: [.font: Self.fireTimeFont]).width)
+        ) + 38
+        labelWidth = max(124, measuredWidth)
     }
 
     // MARK: - Snap state
@@ -335,7 +355,7 @@ private final class DragSurfaceView: NSView {
         labelBackingLayer.shadowOffset = CGSize(width: 0, height: -4)
 
         labelLayer.alignmentMode = .center
-        labelLayer.isWrapped = false
+        labelLayer.isWrapped = true
         labelLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
 
         applySnapAppearance(false)
@@ -371,4 +391,6 @@ private final class DragSurfaceView: NSView {
         }
         return rounded
     }()
+
+    private static let fireTimeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
 }

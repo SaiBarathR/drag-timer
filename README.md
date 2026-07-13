@@ -40,8 +40,8 @@ Verify the published SHA-256 checksum before opening a downloaded build when you
 ### Create and manage timers
 
 - Click the menu-bar icon to open the timer list. Clicking anywhere outside the popover closes it.
-- Press and drag away from the icon. The floating label shows the current duration in real time.
-- Release to start the timer. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
+- Press and drag away from the icon. The floating label shows both the duration and exact trigger time in real time.
+- Release to name and start the timer; this prompt can be disabled in Preferences. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
 - Open the `…` menu beside a timer to edit its label, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
 - Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
@@ -54,6 +54,7 @@ Use the sliders button at the bottom-right of the timer popover to open **Drag T
 The top section controls defaults for timers created after the change:
 
 - Timer name, alert sound, and volume
+- Whether releasing a drag asks for a timer label (on by default)
 - Loop-until-stopped behavior
 - Notification delivery and snooze length
 

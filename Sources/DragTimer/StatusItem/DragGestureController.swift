@@ -172,10 +172,36 @@ final class DragGestureController {
     }
 
     private func commitAndFinish() {
-        if let pendingDuration {
-            timerEngine.createTimer(duration: pendingDuration, options: settings.defaultOptions())
+        guard let duration = pendingDuration else {
+            finish()
+            return
         }
+        let shouldAskForLabel = settings.askForLabelAfterDrag
+        let targetFireDate = Date().addingTimeInterval(duration.rounded())
         finish()
+
+        guard shouldAskForLabel else {
+            timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
+            return
+        }
+
+        // Leave the status item's nested mouse-tracking loop before presenting
+        // a key window. This keeps keyboard focus and the Cancel shortcut
+        // reliable after mouse-up.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let label = TimerLabelPrompt.requestLabel(
+                    duration: duration,
+                    targetFireDate: targetFireDate
+                  ) else { return }
+            self.timerEngine.createTimer(
+                // The countdown begins when the handle is released, not when
+                // the user finishes typing, so the promised clock time stays
+                // accurate while the prompt is open.
+                duration: targetFireDate.timeIntervalSinceNow,
+                options: self.settings.defaultOptions(label: label)
+            )
+        }
     }
 
     private func finish() {
