@@ -20,6 +20,7 @@ enum SelfCheck {
             try verifyDistanceMapping()
             try verifyInertiaProjection()
             try verifyStoppedReleaseMatchesPreview()
+            try verifyMouseUpDistanceWithoutStaleThrow()
             try verifySpringSettlement()
             try verifyDeadlineHeap()
             try verifyMenuBarCountdown()
@@ -118,6 +119,23 @@ enum SelfCheck {
 
         try require(completed, "spring should settle in bounded time")
         try require(abs(physics.displayDuration - release.duration) < 0.25, "spring should settle at release target")
+    }
+
+    private static func verifyMouseUpDistanceWithoutStaleThrow() throws {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.snappingEnabled = false
+        settings.reduceMotion = true
+        var physics = DragPhysics(settings: settings)
+
+        physics.begin(at: 1)
+        _ = physics.updateDrag(distance: 114, timestamp: 1.1)
+        try require(physics.displayDuration == 60, "last dragged sample starts at one minute")
+
+        _ = physics.updateReleaseDistance(119)
+        try require(physics.displayDuration == 120, "mouse-up distance reaches the next minute")
+
+        let release = physics.release(at: 1.4)
+        try require(release.duration == 120, "stale velocity does not project past mouse-up selection")
     }
 
     private static func verifyDeadlineHeap() throws {
