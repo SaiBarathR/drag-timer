@@ -153,8 +153,6 @@ private struct TimerListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-
             quickStart
 
             if let activeAlert = timerEngine.activeAlert {
@@ -192,36 +190,12 @@ private struct TimerListView: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Drag Timer")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                Text(timerSummary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Image(systemName: "waveform.path.ecg")
-                .foregroundStyle(Color.accentColor)
-                .accessibilityHidden(true)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-    }
-
     private var quickStart: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("Quick start")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                Spacer()
-                Text("Uses timer defaults")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+            Text("Quick start")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 4), spacing: 7) {
                 ForEach(settings.quickStartMinutes, id: \.self) { minutes in
@@ -246,6 +220,7 @@ private struct TimerListView: View {
             }
         }
         .padding(.horizontal, 18)
+        .padding(.top, 16)
         .padding(.bottom, 14)
     }
 
@@ -319,6 +294,10 @@ private struct TimerListView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.red)
                 .accessibilityHint("Cancels every timer and stops any ringing sound")
+
+                Text(timerSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } else {
                 Text("Drag the menu bar icon to start")
                     .font(.caption)
