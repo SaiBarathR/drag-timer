@@ -70,7 +70,7 @@ struct DragPhysicsSettings: Codable, Equatable {
             (minimumDuration / DragDurationGrid.step).rounded(.up) * DragDurationGrid.step
         )
         copy.maximumDuration = max(
-            copy.minimumDuration,
+            copy.minimumDuration + DragDurationGrid.step,
             (maximumDuration / DragDurationGrid.step).rounded(.down) * DragDurationGrid.step
         )
         copy.referenceDistance = max(80, referenceDistance)
@@ -142,10 +142,15 @@ struct DragReleaseResult: Equatable {
 }
 
 struct DragPhysics {
+    /// Drag events can arrive sparsely while AppKit's tracking loop is busy.
+    /// Keep the original sampling window separate from release freshness so a
+    /// delayed but valid sample does not erase an in-progress throw.
+    static let maximumVelocitySampleInterval: TimeInterval = 0.25
+
     /// Momentum older than this no longer represents a throw. Without this
     /// cutoff, holding the pointer still retained the last positive velocity
     /// indefinitely and mouse-up increased an already-stable preview.
-    private static let releaseVelocityLifetime: TimeInterval = 0.12
+    static let releaseVelocityLifetime: TimeInterval = 0.12
 
     enum Phase: Equatable {
         case idle
@@ -199,18 +204,33 @@ struct DragPhysics {
         if let lastTimestamp {
             let elapsed = timestamp - lastTimestamp
             let distanceDelta = newDistance - lastDistance
-            if abs(distanceDelta) < 0.5 || elapsed >= Self.releaseVelocityLifetime {
+            if abs(distanceDelta) < 0.5 {
                 velocity = 0
-            } else if elapsed > 0.001 {
+            } else if elapsed > 0.001 && elapsed <= Self.maximumVelocitySampleInterval {
                 let instantaneousVelocity = distanceDelta / elapsed
                 velocity = (velocity * 0.68) + (instantaneousVelocity * 0.32)
+            } else if elapsed > Self.maximumVelocitySampleInterval {
+                velocity = 0
             }
         }
 
-        self.distance = newDistance
         lastDistance = newDistance
         lastTimestamp = timestamp
 
+        return updateSelection(distance: newDistance)
+    }
+
+    /// Applies the authoritative mouse-up position without treating it as a
+    /// new velocity sample. This recovers coalesced distance while preserving
+    /// the age of the last real drag event for stale-momentum detection.
+    @discardableResult
+    mutating func updateReleaseDistance(_ distance: Double) -> Bool {
+        guard phase == .dragging else { return false }
+        return updateSelection(distance: max(0, distance))
+    }
+
+    private mutating func updateSelection(distance newDistance: Double) -> Bool {
+        self.distance = newDistance
         let rawDuration = mapper.duration(forDistance: newDistance)
         let snap = SnapGrid.nearest(to: rawDuration, settings: settings)
         let crossedIntoSnap = snap != nil && snap != activeSnap
@@ -229,13 +249,7 @@ struct DragPhysics {
         }
 
         let velocityAge = max(0, timestamp - (lastTimestamp ?? timestamp))
-        let releaseVelocity: Double
-        if velocityAge < Self.releaseVelocityLifetime {
-            let freshness = 1 - (velocityAge / Self.releaseVelocityLifetime)
-            releaseVelocity = velocity * freshness
-        } else {
-            releaseVelocity = 0
-        }
+        let releaseVelocity = velocityAge < Self.releaseVelocityLifetime ? velocity : 0
 
         let snap: TimeInterval?
         let finalDuration: TimeInterval

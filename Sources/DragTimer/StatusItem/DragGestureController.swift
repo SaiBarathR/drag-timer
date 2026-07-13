@@ -95,10 +95,28 @@ final class DragGestureController {
     }
 
     func end(pointer: CGPoint, timestamp: TimeInterval) {
-        guard state == .tracking else { return }
+        guard state == .tracking, let origin, var physics else { return }
         cursor = pointer
 
-        guard didMoveEnough, var physics else {
+        let dx = pointer.x - origin.x
+        let dy = pointer.y - origin.y
+        let finalDistance = hypot(dx, dy)
+        let didActivate = !didMoveEnough && finalDistance >= Self.activationDistance
+        let enteredSnap = physics.updateReleaseDistance(finalDistance)
+        self.physics = physics
+        didMoveEnough = didMoveEnough || didActivate
+
+        updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap, timestamp: timestamp)
+        lastLabelTimestamp = timestamp
+        overlay?.render(
+            originScreen: origin,
+            cursorScreen: pointer,
+            duration: physics.displayDuration,
+            isSnapped: physics.isSnapped,
+            updateText: true
+        )
+
+        guard didMoveEnough else {
             finish()
             onPopoverRequested()
             return
