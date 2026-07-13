@@ -4,11 +4,13 @@ import Combine
 final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private let timerEngine: TimerEngine
+    private let settings: AppSettings
     private let onPopoverRequested: (NSView, NSRect) -> Void
     private let onPopoverAnchorChanged: (NSView, NSRect) -> Void
     private let gestureController: DragGestureController
     private var statusView: StatusItemCaptureView?
     private var timersCancellable: AnyCancellable?
+    private var settingsCancellable: AnyCancellable?
     private var countdownTicker: Timer?
     private var isPopoverVisible = false
 
@@ -20,6 +22,7 @@ final class StatusItemController: NSObject {
     ) {
         statusItem = NSStatusBar.system.statusItem(withLength: StatusItemGeometry.collapsedWidth)
         self.timerEngine = timerEngine
+        self.settings = settings
         self.onPopoverRequested = onPopoverRequested
         self.onPopoverAnchorChanged = onPopoverAnchorChanged
         gestureController = DragGestureController(
@@ -34,6 +37,7 @@ final class StatusItemController: NSObject {
         }
         configureStatusView()
         observeTimerChanges()
+        observeSettingsChanges()
     }
 
     deinit {
@@ -70,6 +74,10 @@ final class StatusItemController: NSObject {
         let view = StatusItemCaptureView(
             frame: NSRect(x: 0, y: 0, width: StatusItemGeometry.collapsedWidth, height: height)
         )
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.button)
+        view.setAccessibilityLabel("Drag Timer")
+        view.setAccessibilityHelp("Drag to set a timer. Click to view timers.")
         view.toolTip = "Drag to set a timer. Click to view timers."
         view.onBegin = { [weak self] origin, pointer, timestamp in
             guard let self else { return }
@@ -102,7 +110,18 @@ final class StatusItemController: NSObject {
             // @Published delivers the new value before the stored property is
             // updated, so use the emitted collection instead of reading the
             // engine synchronously and briefly rendering stale timer state.
-            self?.refreshCountdown(using: timers)
+            guard let self else { return }
+            if let pinnedID = settings.pinnedTimerID,
+               !timers.contains(where: { $0.id == pinnedID }) {
+                settings.pinnedTimerID = nil
+            }
+            refreshCountdown(using: timers)
+        }
+    }
+
+    private func observeSettingsChanges() {
+        settingsCancellable = settings.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async { self?.refreshCountdown() }
         }
     }
 
@@ -112,38 +131,35 @@ final class StatusItemController: NSObject {
 
     private func refreshCountdown(using timers: [TimerRecord], at date: Date = Date()) {
         guard let statusView else { return }
-        let timer = MenuBarCountdown.earliestRunningTimer(in: timers)
-
-        guard let timer else {
-            updateStatusView(
-                statusView,
-                countdownText: nil,
-                toolTip: "Drag to set a timer. Click to view timers.",
-                accessibilityLabel: "Drag Timer"
-            )
-            setCountdownTickerRunning(false)
-            return
-        }
-
-        let countdownText = MenuBarCountdown.text(for: timer, at: date)
+        let presentation = MenuBarPresentationPolicy.presentation(
+            timers: timers,
+            mode: settings.menuBarDisplayMode,
+            pinnedTimerID: settings.pinnedTimerID,
+            showZeroCount: settings.showZeroCount,
+            urgentThreshold: settings.urgentThreshold,
+            at: date
+        )
+        let description = accessibilityDescription(for: presentation, at: date)
         updateStatusView(
             statusView,
-            countdownText: countdownText,
-            toolTip: "\(timer.label): \(countdownText) remaining. Drag to set another timer or click to view timers.",
-            accessibilityLabel: "Drag Timer, \(timer.label), \(countdownText) remaining"
+            presentation: presentation,
+            toolTip: description + ". Drag to set another timer or click to view timers.",
+            accessibilityLabel: "Drag Timer, \(description)"
         )
-        setCountdownTickerRunning(true)
+        setCountdownTickerRunning(presentation.timer != nil && presentation.requestedMode != .count)
     }
 
     private func updateStatusView(
         _ statusView: StatusItemCaptureView,
-        countdownText: String?,
+        presentation: MenuBarPresentation,
         toolTip: String,
         accessibilityLabel: String
     ) {
         let previousWidth = statusItem.length
         statusView.update(
-            countdownText: countdownText,
+            presentation: presentation,
+            highContrast: TimerAppearancePolicy.highContrast(settings: settings),
+            countdownScale: settings.countdownScale,
             toolTip: toolTip,
             accessibilityLabel: accessibilityLabel
         )
@@ -155,6 +171,24 @@ final class StatusItemController: NSObject {
         guard previousWidth != preferredWidth else { return }
         statusItem.length = preferredWidth
         onPopoverAnchorChanged(statusView, statusView.popoverAnchorRect)
+    }
+
+    private func accessibilityDescription(for presentation: MenuBarPresentation, at date: Date) -> String {
+        switch presentation.requestedMode {
+        case .count:
+            return "\(presentation.runningCount) running timer\(presentation.runningCount == 1 ? "" : "s")"
+        case .deadline, .pinned, .ring:
+            guard let timer = presentation.timer else {
+                return presentation.requestedMode == .pinned
+                    ? "Pinned mode, no timer pinned"
+                    : "No running timers"
+            }
+            let modeName = presentation.requestedMode.displayName
+            let fallback = presentation.usesFallback ? ", using nearest timer" : ""
+            let paused = timer.isPaused ? ", paused" : ""
+            let urgent = presentation.urgent ? ", urgent" : ""
+            return "\(modeName)\(fallback), \(timer.label), \(MenuBarCountdown.text(for: timer, at: date)) remaining\(paused)\(urgent)"
+        }
     }
 
     private func setCountdownTickerRunning(_ shouldRun: Bool) {
@@ -191,11 +225,21 @@ private final class StatusItemCaptureView: NSView {
     private var isTracking = false {
         didSet { needsDisplay = true }
     }
-    private var countdownText: String?
+    private var presentation = MenuBarPresentation(
+        requestedMode: .deadline,
+        text: nil,
+        timer: nil,
+        runningCount: 0,
+        usesFallback: false,
+        urgent: false,
+        progress: nil
+    )
+    private var highContrast = false
+    private var countdownScale: CountdownScale = .standard
     private var lockedPresentationWidth: CGFloat?
 
     var preferredWidth: CGFloat {
-        lockedPresentationWidth ?? StatusItemGeometry.width(for: countdownText)
+        lockedPresentationWidth ?? StatusItemGeometry.width(for: presentation.text, scale: countdownScale)
     }
 
     var popoverAnchorRect: NSRect {
@@ -207,17 +251,21 @@ private final class StatusItemCaptureView: NSView {
         )
         return StatusItemGeometry.popoverAnchorRect(
             in: geometryBounds,
-            hasCountdownLayout: countdownText != nil || lockedPresentationWidth != nil
+            hasCountdownLayout: presentation.hasExpandedLayout || lockedPresentationWidth != nil
         )
     }
 
     func update(
-        countdownText: String?,
+        presentation: MenuBarPresentation,
+        highContrast: Bool,
+        countdownScale: CountdownScale,
         toolTip: String,
         accessibilityLabel: String
     ) {
-        let layoutChanged = self.countdownText != countdownText
-        self.countdownText = countdownText
+        let layoutChanged = self.presentation.text != presentation.text
+        self.presentation = presentation
+        self.highContrast = highContrast
+        self.countdownScale = countdownScale
         self.toolTip = toolTip
         setAccessibilityLabel(accessibilityLabel)
 
@@ -228,8 +276,8 @@ private final class StatusItemCaptureView: NSView {
     }
 
     func lockPresentationGeometryIfNeeded() {
-        guard countdownText != nil else { return }
-        let requiredWidth = StatusItemGeometry.width(for: countdownText)
+        guard presentation.text != nil else { return }
+        let requiredWidth = StatusItemGeometry.width(for: presentation.text, scale: countdownScale)
         lockedPresentationWidth = max(lockedPresentationWidth ?? 0, requiredWidth)
     }
 
@@ -245,7 +293,8 @@ private final class StatusItemCaptureView: NSView {
 
         let center = timerIconCenter
         let radius = StatusItemGeometry.iconDiameter / 2
-        let color = NSColor.labelColor
+        let identityColor = presentation.timer?.resolvedIdentity.color.nsColor ?? NSColor.labelColor
+        let color = presentation.urgent ? NSColor.systemRed : identityColor
         color.setStroke()
 
         let face = NSBezierPath(ovalIn: CGRect(
@@ -254,22 +303,66 @@ private final class StatusItemCaptureView: NSView {
             width: radius * 2,
             height: radius * 2
         ))
-        face.lineWidth = 1.6
+        face.lineWidth = highContrast ? 2.1 : 1.6
         face.stroke()
 
-        let hands = NSBezierPath()
-        hands.move(to: center)
-        hands.line(to: CGPoint(x: center.x, y: center.y + 4))
-        hands.move(to: center)
-        hands.line(to: CGPoint(x: center.x + 3.2, y: center.y - 1.8))
-        hands.lineWidth = 1.6
-        hands.lineCapStyle = .round
-        hands.stroke()
+        if presentation.timer?.isPaused == true {
+            let pause = NSBezierPath()
+            pause.move(to: CGPoint(x: center.x - 2, y: center.y - 3))
+            pause.line(to: CGPoint(x: center.x - 2, y: center.y + 3))
+            pause.move(to: CGPoint(x: center.x + 2, y: center.y - 3))
+            pause.line(to: CGPoint(x: center.x + 2, y: center.y + 3))
+            pause.lineWidth = highContrast ? 2.1 : 1.6
+            pause.stroke()
+        } else if let timer = presentation.timer,
+                  let symbol = NSImage(
+                    systemSymbolName: presentation.urgent ? "exclamationmark" : timer.resolvedIdentity.symbolName,
+                    accessibilityDescription: nil
+                  )?.withSymbolConfiguration(.init(pointSize: 8, weight: .bold)) {
+            symbol.draw(
+                in: NSRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: nil
+            )
+        } else {
+            let hands = NSBezierPath()
+            hands.move(to: center)
+            hands.line(to: CGPoint(x: center.x, y: center.y + 4))
+            hands.move(to: center)
+            hands.line(to: CGPoint(x: center.x + 3.2, y: center.y - 1.8))
+            hands.lineWidth = highContrast ? 2.1 : 1.6
+            hands.lineCapStyle = .round
+            hands.stroke()
+        }
 
-        if let countdownText {
+        if presentation.requestedMode == .ring, let storedProgress = presentation.progress {
+            let progress = CGFloat(storedProgress)
+            NSColor.separatorColor.setStroke()
+            let track = NSBezierPath(ovalIn: face.bounds.insetBy(dx: -2.5, dy: -2.5))
+            track.lineWidth = highContrast ? 2.4 : 1.8
+            track.stroke()
+            color.setStroke()
+            let ringRect = face.bounds.insetBy(dx: -2.5, dy: -2.5)
+            let ring = NSBezierPath()
+            ring.appendArc(
+                withCenter: CGPoint(x: ringRect.midX, y: ringRect.midY),
+                radius: ringRect.width / 2,
+                startAngle: 90,
+                endAngle: 90 - (360 * progress),
+                clockwise: true
+            )
+            ring.lineWidth = highContrast ? 2.4 : 1.8
+            ring.lineCapStyle = .round
+            ring.stroke()
+        }
+
+        if let countdownText = presentation.text {
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: StatusItemGeometry.countdownFont,
-                .foregroundColor: NSColor.labelColor
+                .font: StatusItemGeometry.countdownFont(for: countdownScale),
+                .foregroundColor: presentation.urgent ? NSColor.systemRed : NSColor.labelColor
             ]
             let textSize = (countdownText as NSString).size(withAttributes: attributes)
             let textRect = NSRect(
@@ -328,7 +421,7 @@ private final class StatusItemCaptureView: NSView {
     private var timerIconCenter: CGPoint {
         let iconRect = StatusItemGeometry.iconRect(
             in: bounds,
-            hasCountdownLayout: countdownText != nil || lockedPresentationWidth != nil
+            hasCountdownLayout: presentation.hasExpandedLayout || lockedPresentationWidth != nil
         )
         return CGPoint(x: iconRect.midX, y: iconRect.midY)
     }

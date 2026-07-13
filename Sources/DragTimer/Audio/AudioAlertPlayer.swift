@@ -4,11 +4,22 @@ import AVFoundation
 protocol AudioAlertPlaying: AnyObject {
     func play(timer: TimerRecord)
     func stop()
+    func setPlaybackFinishedHandler(_ handler: @escaping () -> Void)
+}
+
+extension AudioAlertPlaying {
+    func setPlaybackFinishedHandler(_ handler: @escaping () -> Void) {}
 }
 
 final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AudioAlertPlaying {
     private var player: AVAudioPlayer?
     private var systemBeepTimer: Timer?
+    private var oneShotCompletionTimer: Timer?
+    private var playbackFinishedHandler: (() -> Void)?
+
+    func setPlaybackFinishedHandler(_ handler: @escaping () -> Void) {
+        playbackFinishedHandler = handler
+    }
 
     func play(timer: TimerRecord) {
         stop()
@@ -24,6 +35,7 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AudioAlertPlaying
 
         guard let url = bundledURL ?? fallbackURL else {
             NSSound.beep()
+            if !timer.loop { scheduleOneShotCompletion() }
             return
         }
 
@@ -37,10 +49,13 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AudioAlertPlaying
             player = newPlayer
         } catch {
             NSSound.beep()
+            if !timer.loop { scheduleOneShotCompletion() }
         }
     }
 
     func stop() {
+        oneShotCompletionTimer?.invalidate()
+        oneShotCompletionTimer = nil
         systemBeepTimer?.invalidate()
         systemBeepTimer = nil
         player?.stop()
@@ -50,17 +65,30 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AudioAlertPlaying
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         if self.player === player {
             self.player = nil
+            playbackFinishedHandler?()
         }
     }
 
     private func playSystemBeep(looping: Bool) {
         NSSound.beep()
 
-        guard looping else { return }
+        guard looping else {
+            scheduleOneShotCompletion()
+            return
+        }
         let timer = Timer(timeInterval: 1.25, repeats: true) { _ in
             NSSound.beep()
         }
         systemBeepTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func scheduleOneShotCompletion() {
+        let timer = Timer(timeInterval: 1.25, repeats: false) { [weak self] _ in
+            self?.oneShotCompletionTimer = nil
+            self?.playbackFinishedHandler?()
+        }
+        oneShotCompletionTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 }

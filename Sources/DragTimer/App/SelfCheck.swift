@@ -269,7 +269,10 @@ enum SelfCheck {
         try require(!options.notify, "default notification preference persists")
         try require(options.snoozeMinutes == 12, "default snooze persists")
         try require(!restored.askForLabelAfterDrag, "drag label prompt preference persists")
-        try require(restored.quickStartMinutes == [5, 30, 120], "quick start presets persist and normalize")
+        try require(
+            restored.quickStartMinutes == [30, 5, 30, 120],
+            "quick start presets preserve order and duplicate durations"
+        )
         try require(restored.maximumDragDurationHours == 12, "maximum drag duration persists")
         restored.setMaximumDragDurationHours(48)
         try require(restored.maximumDragDurationHours == 24, "maximum drag duration clamps high")

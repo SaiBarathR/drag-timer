@@ -10,7 +10,7 @@ final class DragOverlayWindowController {
     private let panel: DragOverlayPanel
     private let surface: DragSurfaceView
 
-    init() {
+    init(countdownScale: CountdownScale = .standard, highContrast: Bool = false) {
         let frame = Self.allScreenFrame()
         panel = DragOverlayPanel(
             contentRect: frame,
@@ -18,7 +18,11 @@ final class DragOverlayWindowController {
             backing: .buffered,
             defer: false
         )
-        surface = DragSurfaceView(frame: NSRect(origin: .zero, size: frame.size))
+        surface = DragSurfaceView(
+            frame: NSRect(origin: .zero, size: frame.size),
+            countdownScale: countdownScale,
+            highContrast: highContrast
+        )
 
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -70,6 +74,8 @@ final class DragOverlayWindowController {
 }
 
 private final class DragSurfaceView: NSView {
+    private let countdownScale: CountdownScale
+    private let highContrast: Bool
     // The line assembly lives inside a container rotated around the origin, so
     // per-frame updates are transform and bounds changes — the tick path is
     // rebuilt only when the number of visible ticks changes.
@@ -106,14 +112,15 @@ private final class DragSurfaceView: NSView {
     private static var accentColor: NSColor { .controlAccentColor }
     private static var snapColor: NSColor { .systemMint }
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, countdownScale: CountdownScale, highContrast: Bool) {
+        self.countdownScale = countdownScale
+        self.highContrast = highContrast
         super.init(frame: frameRect)
         configureLayers()
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configureLayers()
+        nil
     }
 
     override func viewDidMoveToWindow() {
@@ -195,14 +202,14 @@ private final class DragSurfaceView: NSView {
     }
 
     private func layoutLabel(cursor: CGPoint) {
-        let labelHeight = Metrics.labelHeight
+        let labelHeight = Metrics.labelHeight * countdownScale.factor
         let x = min(max(10, cursor.x - labelWidth / 2), max(10, bounds.width - labelWidth - 10))
         let y = min(max(10, cursor.y - 80), max(10, bounds.height - labelHeight - 10))
         let labelFrame = CGRect(x: x, y: y, width: labelWidth, height: labelHeight)
         labelBackingLayer.frame = labelFrame
         labelBackingLayer.cornerRadius = labelHeight / 2
 
-        let textHeight: CGFloat = 40
+        let textHeight: CGFloat = 40 * countdownScale.factor
         labelLayer.frame = CGRect(
             x: labelFrame.minX,
             y: labelFrame.midY - textHeight / 2 - 1,
@@ -220,7 +227,7 @@ private final class DragSurfaceView: NSView {
         let text = NSMutableAttributedString(
             string: durationString,
             attributes: [
-                .font: Self.labelFont,
+                .font: labelFont,
                 .foregroundColor: isSnapped ? NSColor.white : NSColor(white: 0.96, alpha: 1),
                 .kern: 0.35,
                 .paragraphStyle: paragraph
@@ -229,7 +236,7 @@ private final class DragSurfaceView: NSView {
         text.append(NSAttributedString(
             string: "\n\(fireTimeString)",
             attributes: [
-                .font: Self.fireTimeFont,
+                .font: fireTimeFont,
                 .foregroundColor: isSnapped
                     ? NSColor.white.withAlphaComponent(0.88)
                     : NSColor(white: 0.82, alpha: 1),
@@ -239,8 +246,8 @@ private final class DragSurfaceView: NSView {
         ))
         labelLayer.string = text
         let measuredWidth = max(
-            ceil((durationString as NSString).size(withAttributes: [.font: Self.labelFont]).width),
-            ceil((fireTimeString as NSString).size(withAttributes: [.font: Self.fireTimeFont]).width)
+            ceil((durationString as NSString).size(withAttributes: [.font: labelFont]).width),
+            ceil((fireTimeString as NSString).size(withAttributes: [.font: fireTimeFont]).width)
         ) + 38
         labelWidth = max(124, measuredWidth)
     }
@@ -332,7 +339,7 @@ private final class DragSurfaceView: NSView {
         strokeLayer.endPoint = CGPoint(x: 1, y: 0.5)
 
         ticksLayer.fillColor = nil
-        ticksLayer.lineWidth = 1
+        ticksLayer.lineWidth = highContrast ? 1.8 : 1
         ticksLayer.lineCap = .round
 
         originRingLayer.bounds = CGRect(x: 0, y: 0, width: 11, height: 11)
@@ -348,7 +355,12 @@ private final class DragSurfaceView: NSView {
 
         endpointCoreLayer.backgroundColor = NSColor.white.cgColor
 
-        labelBackingLayer.backgroundColor = NSColor(calibratedRed: 0.07, green: 0.075, blue: 0.10, alpha: 0.88).cgColor
+        labelBackingLayer.backgroundColor = NSColor(
+            calibratedRed: 0.07,
+            green: 0.075,
+            blue: 0.10,
+            alpha: highContrast ? 1 : 0.88
+        ).cgColor
         labelBackingLayer.shadowColor = NSColor.black.cgColor
         labelBackingLayer.shadowOpacity = 0.35
         labelBackingLayer.shadowRadius = 14
@@ -383,14 +395,20 @@ private final class DragSurfaceView: NSView {
         return path
     }
 
-    private static let labelFont: NSFont = {
-        let base = NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+    private var labelFont: NSFont {
+        let size = 16 * countdownScale.factor
+        let base = NSFont.monospacedDigitSystemFont(ofSize: size, weight: highContrast ? .bold : .semibold)
         guard let descriptor = base.fontDescriptor.withDesign(.rounded),
-              let rounded = NSFont(descriptor: descriptor, size: 16) else {
+              let rounded = NSFont(descriptor: descriptor, size: size) else {
             return base
         }
         return rounded
-    }()
+    }
 
-    private static let fireTimeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+    private var fireTimeFont: NSFont {
+        NSFont.monospacedDigitSystemFont(
+            ofSize: 12 * countdownScale.factor,
+            weight: highContrast ? .semibold : .medium
+        )
+    }
 }
