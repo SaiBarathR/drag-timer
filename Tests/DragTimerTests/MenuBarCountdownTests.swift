@@ -37,4 +37,25 @@ final class MenuBarCountdownTests: XCTestCase {
         XCTAssertEqual(MenuBarCountdown.text(forRemaining: 0.1), "0:01")
         XCTAssertEqual(MenuBarCountdown.text(forRemaining: 0), "0:00")
     }
+
+    func testPopoverAnchorStaysExpandedWhenRunningTimerIsPaused() {
+        let runningMode = StatusItemLayoutPolicy.mode(
+            hasRunningTimer: true,
+            isPopoverVisible: true
+        )
+        let pausedMode = StatusItemLayoutPolicy.mode(
+            hasRunningTimer: false,
+            isPopoverVisible: true
+        )
+
+        XCTAssertEqual(runningMode, .expanded)
+        XCTAssertEqual(pausedMode, runningMode)
+    }
+
+    func testPausedTimerCollapsesOnlyAfterPopoverCloses() {
+        XCTAssertEqual(
+            StatusItemLayoutPolicy.mode(hasRunningTimer: false, isPopoverVisible: false),
+            .collapsed
+        )
+    }
 }

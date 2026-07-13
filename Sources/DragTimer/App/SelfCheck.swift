@@ -143,6 +143,18 @@ enum SelfCheck {
             "day countdown format"
         )
         try require(MenuBarCountdown.text(forRemaining: 0.1) == "0:01", "countdown does not expire early")
+        try require(
+            StatusItemLayoutPolicy.mode(hasRunningTimer: true, isPopoverVisible: true) == .expanded,
+            "running timer uses expanded status layout"
+        )
+        try require(
+            StatusItemLayoutPolicy.mode(hasRunningTimer: false, isPopoverVisible: true) == .expanded,
+            "pausing while popover is open keeps its anchor expanded"
+        )
+        try require(
+            StatusItemLayoutPolicy.mode(hasRunningTimer: false, isPopoverVisible: false) == .collapsed,
+            "paused timer collapses after popover closes"
+        )
     }
 
     private static func verifyPersistenceRoundTrip() throws {

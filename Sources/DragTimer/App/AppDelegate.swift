@@ -23,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings: settings,
             onOpenSettings: { [weak self] in
                 self?.showSettings()
+            },
+            onPopoverVisibilityChanged: { [weak self] isVisible in
+                self?.statusItemController?.setPopoverVisible(isVisible)
             }
         )
         self.popoverController = popoverController

@@ -15,6 +15,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let timerEngine: TimerEngine
     private let onOpenSettings: () -> Void
+    private let onPopoverVisibilityChanged: (Bool) -> Void
     private weak var anchorView: NSView?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -26,10 +27,12 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     init(
         timerEngine: TimerEngine,
         settings: AppSettings,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onPopoverVisibilityChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.timerEngine = timerEngine
         self.onOpenSettings = onOpenSettings
+        self.onPopoverVisibilityChanged = onPopoverVisibilityChanged
         super.init()
 
         popover.behavior = .transient
@@ -58,6 +61,8 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
             popover.performClose(nil)
         } else {
             self.anchorView = anchorView
+            // Stabilize the anchor before AppKit calculates the popover frame.
+            onPopoverVisibilityChanged(true)
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
             startOutsideClickMonitoring()
         }
@@ -66,6 +71,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         stopOutsideClickMonitoring()
         anchorView = nil
+        onPopoverVisibilityChanged(false)
     }
 
     private func openSettings() {
