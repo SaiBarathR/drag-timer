@@ -115,6 +115,22 @@ private struct SettingsView: View {
 
                 Section("Drag curve") {
                     VStack(alignment: .leading, spacing: 4) {
+                        Stepper(
+                            value: maximumDragDurationHoursBinding,
+                            in: AppSettings.maximumDragDurationHoursRange
+                        ) {
+                            HStack {
+                                Text("Maximum drag duration")
+                                Spacer()
+                                Text("\(settings.maximumDragDurationHours) hr")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Text("Sets the longest timer reachable by dragging. Quick start presets remain independent.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("Reference drag")
                             Spacer()
@@ -210,6 +226,13 @@ private struct SettingsView: View {
         Binding(
             get: { settings.physics.snappingEnabled },
             set: { value in settings.updatePhysics { $0.snappingEnabled = value } }
+        )
+    }
+
+    private var maximumDragDurationHoursBinding: Binding<Int> {
+        Binding(
+            get: { settings.maximumDragDurationHours },
+            set: { settings.setMaximumDragDurationHours($0) }
         )
     }
 

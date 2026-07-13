@@ -36,6 +36,15 @@ final class AppSettings: ObservableObject {
     @Published var firePastDueOnWake: Bool { didSet { persist() } }
 
     static let defaultQuickStartMinutes = [5, 10, 15, 30, 60, 120, 180, 240]
+    static let maximumDragDurationHoursRange = 4...24
+
+    var maximumDragDurationHours: Int {
+        let hours = Int((physics.maximumDuration / (60 * 60)).rounded())
+        return min(
+            max(hours, Self.maximumDragDurationHoursRange.lowerBound),
+            Self.maximumDragDurationHoursRange.upperBound
+        )
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -109,6 +118,16 @@ final class AppSettings: ObservableObject {
     func setQuickStartMinutes(_ minutes: [Int]) {
         quickStartMinutes = Self.sanitizeQuickStartMinutes(minutes)
         persist()
+    }
+
+    func setMaximumDragDurationHours(_ hours: Int) {
+        let clampedHours = min(
+            max(hours, Self.maximumDragDurationHoursRange.lowerBound),
+            Self.maximumDragDurationHoursRange.upperBound
+        )
+        var copy = physics
+        copy.maximumDuration = TimeInterval(clampedHours * 60 * 60)
+        physics = copy.sanitized
     }
 
     private static func sanitizeQuickStartMinutes(_ minutes: [Int]) -> [Int] {

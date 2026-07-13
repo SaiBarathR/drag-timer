@@ -11,6 +11,11 @@ let package = Package(
         .executableTarget(
             name: "DragTimer",
             path: "Sources/DragTimer"
+        ),
+        .testTarget(
+            name: "DragTimerTests",
+            dependencies: ["DragTimer"],
+            path: "Tests/DragTimerTests"
         )
     ],
     swiftLanguageVersions: [.v5]

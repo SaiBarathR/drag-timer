@@ -1,17 +1,24 @@
 import AppKit
+import Combine
 
 final class StatusItemController: NSObject {
+    private static let collapsedWidth: CGFloat = 32
+
     private let statusItem: NSStatusItem
+    private let timerEngine: TimerEngine
     private let onPopoverRequested: (NSView) -> Void
     private let gestureController: DragGestureController
     private var statusView: StatusItemCaptureView?
+    private var timersCancellable: AnyCancellable?
+    private var countdownTicker: Timer?
 
     init(
         timerEngine: TimerEngine,
         settings: AppSettings,
         onPopoverRequested: @escaping (NSView) -> Void
     ) {
-        statusItem = NSStatusBar.system.statusItem(withLength: 32)
+        statusItem = NSStatusBar.system.statusItem(withLength: Self.collapsedWidth)
+        self.timerEngine = timerEngine
         self.onPopoverRequested = onPopoverRequested
         gestureController = DragGestureController(
             timerEngine: timerEngine,
@@ -24,15 +31,19 @@ final class StatusItemController: NSObject {
             self?.showPopover()
         }
         configureStatusView()
+        observeTimerChanges()
     }
 
     deinit {
+        countdownTicker?.invalidate()
         NSStatusBar.system.removeStatusItem(statusItem)
     }
 
     private func configureStatusView() {
         let height = NSStatusBar.system.thickness
-        let view = StatusItemCaptureView(frame: NSRect(x: 0, y: 0, width: 32, height: height))
+        let view = StatusItemCaptureView(
+            frame: NSRect(x: 0, y: 0, width: Self.collapsedWidth, height: height)
+        )
         view.toolTip = "Drag to set a timer. Click to view timers."
         view.onBegin = { [weak self] origin, pointer, timestamp in
             guard let self else { return }
@@ -60,6 +71,51 @@ final class StatusItemController: NSObject {
         statusView = view
     }
 
+    private func observeTimerChanges() {
+        timersCancellable = timerEngine.$timers.sink { [weak self] _ in
+            self?.refreshCountdown()
+        }
+    }
+
+    private func refreshCountdown(at date: Date = Date()) {
+        guard let statusView else { return }
+
+        guard let timer = MenuBarCountdown.earliestRunningTimer(in: timerEngine.timers) else {
+            statusView.update(
+                countdownText: nil,
+                toolTip: "Drag to set a timer. Click to view timers.",
+                accessibilityLabel: "Drag Timer"
+            )
+            statusItem.length = Self.collapsedWidth
+            setCountdownTickerRunning(false)
+            return
+        }
+
+        let countdownText = MenuBarCountdown.text(for: timer, at: date)
+        statusView.update(
+            countdownText: countdownText,
+            toolTip: "\(timer.label): \(countdownText) remaining. Drag to set another timer or click to view timers.",
+            accessibilityLabel: "Drag Timer, \(timer.label), \(countdownText) remaining"
+        )
+        statusItem.length = statusView.preferredWidth
+        setCountdownTickerRunning(true)
+    }
+
+    private func setCountdownTickerRunning(_ shouldRun: Bool) {
+        if shouldRun {
+            guard countdownTicker == nil else { return }
+
+            let ticker = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                self?.refreshCountdown()
+            }
+            countdownTicker = ticker
+            RunLoop.main.add(ticker, forMode: .common)
+        } else {
+            countdownTicker?.invalidate()
+            countdownTicker = nil
+        }
+    }
+
     private func showPopover() {
         guard let statusView else { return }
         onPopoverRequested(statusView)
@@ -70,6 +126,13 @@ final class StatusItemController: NSObject {
 /// once it receives mouse-down, AppKit continues feeding it drag/up events even
 /// after the pointer has left the status item's bounds.
 private final class StatusItemCaptureView: NSView {
+    private static let collapsedWidth: CGFloat = 32
+    private static let iconDiameter: CGFloat = 14
+    private static let iconLeading: CGFloat = 6
+    private static let textLeading: CGFloat = 26
+    private static let textTrailing: CGFloat = 7
+    private static let countdownFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+
     var onBegin: ((CGPoint, CGPoint, TimeInterval) -> Void)?
     var onDrag: ((CGPoint, TimeInterval) -> Void)?
     var onEnd: ((CGPoint, TimeInterval) -> Void)?
@@ -79,6 +142,36 @@ private final class StatusItemCaptureView: NSView {
     private var isTracking = false {
         didSet { needsDisplay = true }
     }
+    private var countdownText: String?
+
+    var preferredWidth: CGFloat {
+        guard let countdownText else { return Self.collapsedWidth }
+
+        // Reserve a stable width inside each display format so the surrounding
+        // menu-bar items do not jitter every time a digit changes.
+        let widthTemplate: String
+        if countdownText.contains("d") {
+            widthTemplate = "00d 00h"
+        } else if countdownText.contains("h") {
+            widthTemplate = "00h 00m"
+        } else {
+            widthTemplate = "00:00"
+        }
+        let textWidth = max(measuredWidth(of: countdownText), measuredWidth(of: widthTemplate))
+        return ceil(Self.textLeading + textWidth + Self.textTrailing)
+    }
+
+    func update(countdownText: String?, toolTip: String, accessibilityLabel: String) {
+        let countdownChanged = self.countdownText != countdownText
+        self.countdownText = countdownText
+        self.toolTip = toolTip
+        setAccessibilityLabel(accessibilityLabel)
+
+        if countdownChanged {
+            invalidateIntrinsicContentSize()
+        }
+        needsDisplay = true
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         if isTracking {
@@ -86,8 +179,8 @@ private final class StatusItemCaptureView: NSView {
             NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 1), xRadius: 5, yRadius: 5).fill()
         }
 
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let radius: CGFloat = 7
+        let center = timerIconCenter
+        let radius = Self.iconDiameter / 2
         let color = NSColor.labelColor
         color.setStroke()
 
@@ -108,6 +201,21 @@ private final class StatusItemCaptureView: NSView {
         hands.lineWidth = 1.6
         hands.lineCapStyle = .round
         hands.stroke()
+
+        if let countdownText {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: Self.countdownFont,
+                .foregroundColor: NSColor.labelColor
+            ]
+            let textSize = (countdownText as NSString).size(withAttributes: attributes)
+            let textRect = NSRect(
+                x: Self.textLeading,
+                y: floor((bounds.height - textSize.height) / 2) + 0.5,
+                width: ceil(textSize.width),
+                height: ceil(textSize.height)
+            )
+            (countdownText as NSString).draw(in: textRect, withAttributes: attributes)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -153,15 +261,23 @@ private final class StatusItemCaptureView: NSView {
         onSecondaryClick?()
     }
 
-    private var screenRect: NSRect {
-        guard let window else { return .zero }
-        let windowRect = convert(bounds, to: nil)
-        return window.convertToScreen(windowRect)
+    private var timerIconCenter: CGPoint {
+        guard countdownText != nil else {
+            return CGPoint(x: bounds.midX, y: bounds.midY)
+        }
+        return CGPoint(
+            x: Self.iconLeading + (Self.iconDiameter / 2),
+            y: bounds.midY
+        )
     }
 
     private var screenCenter: CGPoint {
-        let rect = screenRect
-        guard !rect.isEmpty else { return NSEvent.mouseLocation }
-        return CGPoint(x: rect.midX, y: rect.midY)
+        guard let window else { return NSEvent.mouseLocation }
+        let windowPoint = convert(timerIconCenter, to: nil)
+        return window.convertPoint(toScreen: windowPoint)
+    }
+
+    private func measuredWidth(of text: String) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: Self.countdownFont]).width
     }
 }
