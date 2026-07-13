@@ -82,6 +82,71 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testRoutineBatchUsesOneTimestampAndKeepsIndependentLifecycle() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let templates = [
+            TimerTemplate(
+                duration: 5 * 60,
+                options: TimerOptions(label: "Focus", notify: false),
+                origin: .routine
+            ),
+            TimerTemplate(
+                duration: 10 * 60,
+                options: TimerOptions(label: "Break", loop: true),
+                origin: .routine
+            )
+        ]
+
+        let firstLaunch = fixture.engine.createTimers(templates: templates)
+        let secondLaunch = fixture.engine.createTimers(templates: templates)
+
+        XCTAssertEqual(firstLaunch.count, 2)
+        XCTAssertEqual(Set(firstLaunch.map(\.createdAt)), [fixture.clock.date])
+        XCTAssertEqual(firstLaunch.map(\.fireDate), [
+            fixture.clock.date.addingTimeInterval(5 * 60),
+            fixture.clock.date.addingTimeInterval(10 * 60)
+        ])
+        XCTAssertTrue(firstLaunch.allSatisfy { $0.resolvedOrigin == .routine })
+        XCTAssertEqual(Set((firstLaunch + secondLaunch).map(\.id)).count, 4)
+
+        fixture.engine.pause(id: firstLaunch[0].id)
+        fixture.engine.cancel(id: firstLaunch[1].id)
+
+        XCTAssertEqual(fixture.engine.timers.first { $0.id == firstLaunch[0].id }?.isPaused, true)
+        XCTAssertNotNil(fixture.engine.timers.first { $0.id == secondLaunch[0].id })
+        XCTAssertEqual(
+            fixture.engine.historyEntries.first { $0.sourceTimerID == firstLaunch[1].id }?.origin,
+            .routine
+        )
+    }
+
+    @MainActor
+    func testSimultaneousRoutineExpiriesKeepLoopingAudioPriority() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        engine.createTimers(templates: [
+            TimerTemplate(duration: 60, options: TimerOptions(label: "One shot"), origin: .routine),
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Looping", loop: true), origin: .routine)
+        ])
+        clock.date.addTimeInterval(61)
+        engine.processExpiries()
+
+        XCTAssertEqual(engine.pendingExpiries.count, 2)
+        XCTAssertEqual(audio.playedLabels, ["Looping"])
+        XCTAssertEqual(engine.activeAlert?.label, "Looping")
+    }
+
+    @MainActor
     func testRelaunchReconcilesPendingExpiryWithoutDuplicateHistory() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 1_000))

@@ -89,6 +89,32 @@ final class TimerEngine: ObservableObject {
     }
 
     @discardableResult
+    func createTimers(templates: [TimerTemplate]) -> [TimerRecord] {
+        guard !templates.isEmpty else { return [] }
+        let createdAt = now()
+        let records = templates.map { template in
+            let duration = min(max(1, template.duration.rounded()), 24 * 60 * 60)
+            return TimerRecord(
+                createdAt: createdAt,
+                fireDate: createdAt.addingTimeInterval(duration),
+                options: template.options,
+                origin: template.origin,
+                parentEventID: template.parentEventID
+            )
+        }
+
+        for record in records {
+            heap.insert(record)
+            timers.append(record)
+            notificationService.schedule(record)
+        }
+        sortTimers()
+        persistActiveTimers()
+        rearmScheduler()
+        return records
+    }
+
+    @discardableResult
     func createTimer(
         duration: TimeInterval,
         options: TimerOptions,
@@ -329,7 +355,7 @@ final class TimerEngine: ObservableObject {
             switch child.resolvedOrigin {
             case .snooze: inferredResolution = .snoozed
             case .restart: inferredResolution = .restarted
-            case .drag, .preset, .history: inferredResolution = nil
+            case .drag, .preset, .routine, .history: inferredResolution = nil
             }
             guard let inferredResolution,
                   let historyIndex = historyEntries.firstIndex(where: { $0.id == expiry.id }) else { continue }

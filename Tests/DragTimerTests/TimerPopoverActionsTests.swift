@@ -36,4 +36,22 @@ final class TimerPopoverActionsTests: XCTestCase {
 
         XCTAssertEqual(calls, ["cancel", "dismiss"])
     }
+
+    func testRoutineLaunchForwardsOrderedSnapshotsAsRoutineTemplates() {
+        let routine = TimerRoutine(
+            name: "Morning",
+            timers: [
+                RoutineTimerDefinition(duration: 5 * 60, options: TimerOptions(label: "Coffee")),
+                RoutineTimerDefinition(duration: 15 * 60, options: TimerOptions(label: "Journal"))
+            ]
+        )
+        var captured: [TimerTemplate] = []
+        let action = RoutineLaunchAction { captured = $0 }
+
+        action.start(routine)
+
+        XCTAssertEqual(captured.map(\.duration), [5 * 60, 15 * 60])
+        XCTAssertEqual(captured.map(\.options.label), ["Coffee", "Journal"])
+        XCTAssertTrue(captured.allSatisfy { $0.origin == .routine })
+    }
 }

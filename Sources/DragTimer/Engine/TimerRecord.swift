@@ -49,6 +49,7 @@ struct TimerIdentity: Codable, Equatable {
 enum TimerOrigin: String, Codable, Equatable {
     case drag
     case preset
+    case routine
     case history
     case snooze
     case restart

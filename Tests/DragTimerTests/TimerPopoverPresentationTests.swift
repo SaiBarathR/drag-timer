@@ -46,6 +46,31 @@ final class TimerPopoverPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testRoutineStripKeepsPopoverWidthAndAddsOnlyOneCompactRow() {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = makeController(fixture: fixture)
+        controller.prepareForPresentationForTesting()
+        let withoutRoutine = controller.currentContentSize
+        XCTAssertTrue(fixture.settings.addRoutine(TimerRoutine(
+            name: "Morning routine",
+            timers: [
+                RoutineTimerDefinition(duration: 5 * 60, options: TimerOptions(label: "Coffee")),
+                RoutineTimerDefinition(duration: 15 * 60, options: TimerOptions(label: "Journal"))
+            ]
+        )))
+        runMainLoopBriefly()
+
+        controller.prepareForPresentationForTesting()
+        let withRoutine = controller.currentContentSize
+
+        XCTAssertEqual(withRoutine.width, withoutRoutine.width, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(withRoutine.height, withoutRoutine.height)
+        XCTAssertLessThanOrEqual(withRoutine.height - withoutRoutine.height, 70)
+    }
+
+    @MainActor
     func testEmptyAndActivePopoversStayAttachedToClockAnchor() throws {
         _ = NSApplication.shared
         guard let screen = NSScreen.main else {

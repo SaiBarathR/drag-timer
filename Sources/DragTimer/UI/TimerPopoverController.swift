@@ -11,6 +11,14 @@ struct TimerPopoverActions {
     }
 }
 
+struct RoutineLaunchAction {
+    let createTimers: ([TimerTemplate]) -> Void
+
+    func start(_ routine: TimerRoutine) {
+        createTimers(routine.timerTemplates)
+    }
+}
+
 enum TimerRowInlineAction: Hashable {
     case delete
     case reset
@@ -249,6 +257,10 @@ private struct TimerListView: View {
         VStack(spacing: 0) {
             quickStart
 
+            if !settings.routines.isEmpty {
+                routineLaunchStrip
+            }
+
             if let expiry = timerEngine.currentExpiry {
                 expiryCard(for: expiry)
             }
@@ -330,6 +342,54 @@ private struct TimerListView: View {
         }
         .padding(.horizontal, 18)
         .padding(.top, 16)
+        .padding(.bottom, settings.routines.isEmpty ? 14 : 9)
+    }
+
+    private var routineLaunchStrip: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Routines")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            ScrollView(.horizontal) {
+                HStack(spacing: 7) {
+                    ForEach(settings.routines) { routine in
+                        Button {
+                            RoutineLaunchAction { templates in
+                                timerEngine.createTimers(templates: templates)
+                            }.start(routine)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "square.stack.3d.up.fill")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color.accentColor)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(routine.name)
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                        .lineLimit(1)
+                                    Text("\(routine.timers.count) \(routine.timers.count == 1 ? "timer" : "timers")")
+                                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 2)
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 9)
+                            .frame(width: 150, height: 38)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityLabel(routineAccessibilityLabel(routine))
+                        .help(routineAccessibilityLabel(routine))
+                    }
+                }
+            }
+            .scrollIndicators(.never)
+        }
+        .padding(.horizontal, 18)
         .padding(.bottom, 14)
     }
 
@@ -531,6 +591,10 @@ private struct TimerListView: View {
         return preset.label.isEmpty
             ? "a \(minutes)-minute timer"
             : "\(preset.label), \(minutes)-minute timer"
+    }
+
+    private func routineAccessibilityLabel(_ routine: TimerRoutine) -> String {
+        "Start \(routine.name) routine, \(routine.timers.count) \(routine.timers.count == 1 ? "timer" : "timers")"
     }
 
     private func displayVersion(_ tag: String) -> String {

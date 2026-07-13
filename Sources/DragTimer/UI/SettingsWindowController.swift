@@ -64,6 +64,7 @@ private struct SettingsView: View {
                         notificationService: notificationService
                     )
                 case .presets: PresetsSettingsView(settings: settings)
+                case .routines: RoutinesSettingsView(settings: settings)
                 case .menuBar: MenuBarSettingsView(settings: settings)
                 case .appearance: AppearanceSettingsView(settings: settings)
                 case .feel: FeelSettingsView(settings: settings)
@@ -79,6 +80,7 @@ private struct SettingsView: View {
 private enum SettingsPane: String, CaseIterable, Identifiable {
     case general
     case presets
+    case routines
     case menuBar
     case appearance
     case feel
@@ -89,6 +91,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .presets: return "Presets"
+        case .routines: return "Routines"
         case .menuBar: return "Menu bar"
         case .appearance: return "Appearance"
         case .feel: return "Feel"
@@ -99,6 +102,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .presets: return "bolt.fill"
+        case .routines: return "square.stack.3d.up.fill"
         case .menuBar: return "menubar.rectangle"
         case .appearance: return "circle.lefthalf.filled"
         case .feel: return "hand.draw"
@@ -391,9 +395,320 @@ private struct PresetsSettingsView: View {
 }
 
 private struct PresetEditorView: View {
-    @Environment(\.dismiss) private var dismiss
     let preset: QuickStartPreset
     let onSave: (QuickStartPreset) -> Void
+
+    var body: some View {
+        TimerDefinitionEditorView(
+            title: "Quick start preset",
+            label: preset.label,
+            duration: preset.duration,
+            alert: preset.alert,
+            identity: preset.identity,
+            requiresLabel: false
+        ) { label, duration, alert, identity in
+            onSave(QuickStartPreset(
+                id: preset.id,
+                duration: duration,
+                label: label,
+                alert: alert,
+                identity: identity
+            ))
+        }
+    }
+}
+
+private struct RoutinesSettingsView: View {
+    @ObservedObject var settings: AppSettings
+    @State private var editingRoutine: TimerRoutine?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Timer routines").font(.headline)
+                    Text("Start several timer snapshots together from the menu bar.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    editingRoutine = TimerRoutine(
+                        name: "",
+                        timers: [RoutineTimerDefinition(
+                            duration: 5 * 60,
+                            options: settings.defaultOptions()
+                        )]
+                    )
+                } label: { Label("Add", systemImage: "plus") }
+            }
+
+            List {
+                ForEach(settings.routines) { routine in
+                    routineRow(routine)
+                        .onTapGesture(count: 2) { editingRoutine = routine }
+                }
+                .onMove(perform: settings.moveRoutines)
+            }
+            .listStyle(.inset)
+            .overlay {
+                if settings.routines.isEmpty {
+                    ContentUnavailableView(
+                        "No routines yet",
+                        systemImage: "square.stack.3d.up",
+                        description: Text("Add a routine, then fill it with timers or copies of Quick start presets.")
+                    )
+                }
+            }
+
+            Text("Changing a routine never changes timers that are already running.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(4)
+        .sheet(item: $editingRoutine) { routine in
+            RoutineEditorView(
+                routine: routine,
+                presets: settings.quickStartPresets,
+                defaultOptions: settings.defaultOptions()
+            ) { saved in
+                if settings.routines.contains(where: { $0.id == saved.id }) {
+                    _ = settings.updateRoutine(saved)
+                } else {
+                    _ = settings.addRoutine(saved)
+                }
+            }
+        }
+    }
+
+    private func routineRow(_ routine: TimerRoutine) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
+            Image(systemName: "square.stack.3d.up.fill")
+                .font(.system(size: 21, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(routine.name).fontWeight(.medium)
+                Text("\(routine.timers.count) \(routine.timers.count == 1 ? "timer" : "timers")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Menu {
+                Button("Edit") { editingRoutine = routine }
+                Button("Duplicate") { _ = settings.duplicateRoutine(id: routine.id) }
+                Button("Move up") { settings.moveRoutine(id: routine.id, offset: -1) }
+                Button("Move down") { settings.moveRoutine(id: routine.id, offset: 1) }
+                Divider()
+                Button("Delete", role: .destructive) { settings.removeRoutine(id: routine.id) }
+            } label: { Image(systemName: "ellipsis.circle") }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.vertical, 5)
+        .accessibilityElement(children: .combine)
+        .accessibilityAction(named: "Move up") { settings.moveRoutine(id: routine.id, offset: -1) }
+        .accessibilityAction(named: "Move down") { settings.moveRoutine(id: routine.id, offset: 1) }
+    }
+}
+
+private struct RoutineEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    let routine: TimerRoutine
+    let presets: [QuickStartPreset]
+    let defaultOptions: TimerOptions
+    let onSave: (TimerRoutine) -> Void
+
+    @State private var name: String
+    @State private var timers: [RoutineTimerDefinition]
+    @State private var editingTimer: RoutineTimerDefinition?
+
+    init(
+        routine: TimerRoutine,
+        presets: [QuickStartPreset],
+        defaultOptions: TimerOptions,
+        onSave: @escaping (TimerRoutine) -> Void
+    ) {
+        self.routine = routine
+        self.presets = presets
+        self.defaultOptions = defaultOptions
+        self.onSave = onSave
+        _name = State(initialValue: routine.name)
+        _timers = State(initialValue: routine.timers)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Timer routine").font(.headline)
+                TextField("Routine name", text: $name)
+                HStack {
+                    Text("Timers").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Menu {
+                        Button("Add custom timer") {
+                            editingTimer = RoutineTimerDefinition(
+                                duration: 5 * 60,
+                                options: defaultOptions
+                            )
+                        }
+                        if !presets.isEmpty {
+                            Divider()
+                            ForEach(presets) { preset in
+                                Button(presetMenuLabel(preset)) {
+                                    timers.append(RoutineTimerDefinition(preset: preset))
+                                }
+                            }
+                        }
+                    } label: { Label("Add timer", systemImage: "plus") }
+                }
+            }
+            .padding([.horizontal, .top], 20)
+            .padding(.bottom, 10)
+
+            List {
+                ForEach(timers) { timer in
+                    routineTimerRow(timer)
+                        .onTapGesture(count: 2) { editingTimer = timer }
+                }
+                .onMove(perform: moveTimers)
+            }
+            .listStyle(.inset)
+
+            Divider()
+            HStack {
+                Button("Cancel") { dismiss() }
+                Spacer()
+                if let validationMessage {
+                    Text(validationMessage)
+                        .font(.caption).foregroundStyle(.red)
+                }
+                Button("Save routine") {
+                    onSave(TimerRoutine(id: routine.id, name: name, timers: timers))
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(validationMessage != nil)
+            }
+            .padding()
+        }
+        .frame(width: 540, height: 520)
+        .sheet(item: $editingTimer) { timer in
+            RoutineTimerEditorView(timer: timer) { saved in
+                if let index = timers.firstIndex(where: { $0.id == saved.id }) {
+                    timers[index] = saved
+                } else {
+                    timers.append(saved)
+                }
+            }
+        }
+    }
+
+    private func routineTimerRow(_ timer: RoutineTimerDefinition) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
+            TimerIdentityBead(identity: timer.options.identity, size: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(timer.options.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Timer"
+                    : timer.options.label)
+                    .fontWeight(.medium)
+                Text(settingsDuration(timer.duration))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Menu {
+                Button("Edit") { editingTimer = timer }
+                Button("Duplicate") {
+                    guard let index = timers.firstIndex(where: { $0.id == timer.id }) else { return }
+                    timers.insert(
+                        RoutineTimerDefinition(duration: timer.duration, options: timer.options),
+                        at: index + 1
+                    )
+                }
+                Button("Move up") { moveTimer(id: timer.id, offset: -1) }
+                Button("Move down") { moveTimer(id: timer.id, offset: 1) }
+                Divider()
+                Button("Delete", role: .destructive) { timers.removeAll { $0.id == timer.id } }
+            } label: { Image(systemName: "ellipsis.circle") }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func moveTimers(fromOffsets: IndexSet, toOffset: Int) {
+        timers.move(fromOffsets: fromOffsets, toOffset: toOffset)
+    }
+
+    private func moveTimer(id: UUID, offset: Int) {
+        guard let source = timers.firstIndex(where: { $0.id == id }) else { return }
+        let destination = min(max(source + offset, 0), timers.count - 1)
+        guard source != destination else { return }
+        let timer = timers.remove(at: source)
+        timers.insert(timer, at: destination)
+    }
+
+    private func presetMenuLabel(_ preset: QuickStartPreset) -> String {
+        let name = preset.label.isEmpty ? settingsDuration(preset.duration) : preset.label
+        return "Copy \(name)"
+    }
+
+    private var validationMessage: String? {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Name the routine."
+        }
+        if timers.isEmpty {
+            return "Add at least one timer."
+        }
+        if timers.contains(where: {
+            $0.options.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            return "Name every timer."
+        }
+        return nil
+    }
+}
+
+private struct RoutineTimerEditorView: View {
+    let timer: RoutineTimerDefinition
+    let onSave: (RoutineTimerDefinition) -> Void
+
+    var body: some View {
+        TimerDefinitionEditorView(
+            title: "Routine timer",
+            label: timer.options.label,
+            duration: timer.duration,
+            alert: PresetAlertOptions(
+                soundName: timer.options.soundName,
+                volume: timer.options.volume,
+                loop: timer.options.loop,
+                notify: timer.options.notify,
+                snoozeMinutes: timer.options.snoozeMinutes
+            ),
+            identity: timer.options.identity,
+            requiresLabel: true
+        ) { label, duration, alert, identity in
+            onSave(RoutineTimerDefinition(
+                id: timer.id,
+                duration: duration,
+                options: TimerOptions(
+                    label: label,
+                    soundName: alert.soundName,
+                    volume: alert.volume,
+                    loop: alert.loop,
+                    notify: alert.notify,
+                    snoozeMinutes: alert.snoozeMinutes,
+                    identity: identity
+                )
+            ))
+        }
+    }
+}
+
+private struct TimerDefinitionEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let requiresLabel: Bool
+    let onSave: (String, TimeInterval, PresetAlertOptions, TimerIdentity) -> Void
 
     @State private var label: String
     @State private var minutes: Int
@@ -405,23 +720,32 @@ private struct PresetEditorView: View {
     @State private var color: TimerColorToken
     @State private var symbolName: String
 
-    init(preset: QuickStartPreset, onSave: @escaping (QuickStartPreset) -> Void) {
-        self.preset = preset
+    init(
+        title: String,
+        label: String,
+        duration: TimeInterval,
+        alert: PresetAlertOptions,
+        identity: TimerIdentity,
+        requiresLabel: Bool,
+        onSave: @escaping (String, TimeInterval, PresetAlertOptions, TimerIdentity) -> Void
+    ) {
+        self.title = title
+        self.requiresLabel = requiresLabel
         self.onSave = onSave
-        _label = State(initialValue: preset.label)
-        _minutes = State(initialValue: Int((preset.duration / 60).rounded()))
-        _soundName = State(initialValue: preset.alert.soundName)
-        _volume = State(initialValue: preset.alert.volume)
-        _loop = State(initialValue: preset.alert.loop)
-        _notify = State(initialValue: preset.alert.notify)
-        _snoozeMinutes = State(initialValue: preset.alert.snoozeMinutes)
-        _color = State(initialValue: preset.identity.color)
-        _symbolName = State(initialValue: preset.identity.symbolName)
+        _label = State(initialValue: label)
+        _minutes = State(initialValue: Int((duration / 60).rounded()))
+        _soundName = State(initialValue: alert.soundName)
+        _volume = State(initialValue: alert.volume)
+        _loop = State(initialValue: alert.loop)
+        _notify = State(initialValue: alert.notify)
+        _snoozeMinutes = State(initialValue: alert.snoozeMinutes)
+        _color = State(initialValue: identity.color)
+        _symbolName = State(initialValue: identity.symbolName)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Quick start preset").font(.headline).padding(.top, 20)
+            Text(title).font(.headline).padding(.top, 20)
             Form {
                 TextField("Label", text: $label)
                 Stepper("Duration: \(minutes) min", value: $minutes, in: 1...1_440)
@@ -447,27 +771,35 @@ private struct PresetEditorView: View {
                 Button("Cancel") { dismiss() }
                 Spacer()
                 Button("Save") {
-                    onSave(QuickStartPreset(
-                        id: preset.id,
-                        duration: TimeInterval(minutes * 60),
-                        label: label,
-                        alert: PresetAlertOptions(
+                    onSave(
+                        label,
+                        TimeInterval(minutes * 60),
+                        PresetAlertOptions(
                             soundName: soundName,
                             volume: volume,
                             loop: loop,
                             notify: notify,
                             snoozeMinutes: snoozeMinutes
                         ),
-                        identity: TimerIdentity(color: color, symbolName: symbolName)
-                    ))
+                        TimerIdentity(color: color, symbolName: symbolName)
+                    )
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(requiresLabel && label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding()
         }
         .frame(width: 440)
     }
+}
+
+private func settingsDuration(_ duration: TimeInterval) -> String {
+    let minutes = Int((duration / 60).rounded())
+    if minutes >= 60, minutes.isMultiple(of: 60) {
+        return "\(minutes / 60) hr"
+    }
+    return "\(minutes) min"
 }
 
 private struct MenuBarSettingsView: View {

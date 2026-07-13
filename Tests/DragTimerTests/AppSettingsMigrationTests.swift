@@ -41,6 +41,7 @@ final class AppSettingsMigrationTests: XCTestCase {
         XCTAssertEqual(settings.menuBarDisplayMode, .deadline)
         XCTAssertEqual(settings.countdownScale, .standard)
         XCTAssertEqual(settings.quickStartMinutes, AppSettings.defaultQuickStartMinutes)
+        XCTAssertTrue(settings.routines.isEmpty)
     }
 
     func testRichPresetOrderDuplicatesAndSnapshotOptionsPersist() {
@@ -67,6 +68,58 @@ final class AppSettingsMigrationTests: XCTestCase {
         XCTAssertTrue(options.loop)
         XCTAssertEqual(options.snoozeMinutes, 3)
         XCTAssertEqual(options.identity.color, .amber)
+    }
+
+    func testRoutineSnapshotsOrderDuplicationAndPersistence() throws {
+        let fixture = makeDefaults()
+        defer { fixture.cleanup() }
+        let settings = AppSettings(defaults: fixture.defaults)
+        let teaPreset = QuickStartPreset(
+            duration: 4 * 60,
+            label: "Tea",
+            alert: PresetAlertOptions(loop: true, snoozeMinutes: 3),
+            identity: TimerIdentity(color: .amber, symbolName: "cup.and.saucer.fill")
+        )
+        settings.setQuickStartPresets([teaPreset])
+        let teaTimer = RoutineTimerDefinition(preset: teaPreset)
+        let focusTimer = RoutineTimerDefinition(
+            duration: 25 * 60,
+            options: TimerOptions(label: "Focus", notify: false)
+        )
+        let morning = TimerRoutine(name: "Morning", timers: [teaTimer, focusTimer])
+        let cooking = TimerRoutine(
+            name: "Cooking",
+            timers: [RoutineTimerDefinition(duration: 10 * 60, options: TimerOptions(label: "Oven"))]
+        )
+
+        XCTAssertFalse(settings.addRoutine(TimerRoutine(name: "", timers: [])))
+        XCTAssertFalse(settings.addRoutine(TimerRoutine(
+            name: "Unlabeled",
+            timers: [RoutineTimerDefinition(duration: 5 * 60, options: TimerOptions(label: ""))]
+        )))
+        XCTAssertTrue(settings.addRoutine(morning))
+        XCTAssertTrue(settings.addRoutine(cooking))
+        settings.moveRoutine(id: cooking.id, offset: -1)
+        XCTAssertTrue(settings.duplicateRoutine(id: morning.id))
+
+        var changedPreset = teaPreset
+        changedPreset.label = "Changed preset"
+        changedPreset.duration = 30 * 60
+        settings.updatePreset(changedPreset)
+
+        let restored = AppSettings(defaults: fixture.defaults)
+        XCTAssertEqual(restored.routines.map(\.name), ["Cooking", "Morning", "Morning Copy"])
+        let restoredMorning = try XCTUnwrap(restored.routines.first { $0.name == "Morning" })
+        XCTAssertEqual(restoredMorning.timers.map(\.options.label), ["Tea", "Focus"])
+        XCTAssertEqual(restoredMorning.timers.map(\.duration), [4 * 60, 25 * 60])
+        XCTAssertEqual(restoredMorning.timers[0].options.identity.color, .amber)
+        XCTAssertTrue(restoredMorning.timers[0].options.loop)
+        XCTAssertFalse(restoredMorning.timers[1].options.notify)
+
+        let copy = try XCTUnwrap(restored.routines.first { $0.name == "Morning Copy" })
+        XCTAssertNotEqual(copy.id, restoredMorning.id)
+        XCTAssertEqual(copy.timers.count, restoredMorning.timers.count)
+        XCTAssertTrue(zip(copy.timers, restoredMorning.timers).allSatisfy { $0.id != $1.id })
     }
 
     func testLegacyTimerDecodesWithDefaultIdentityAndOrigin() throws {

@@ -85,6 +85,7 @@ final class AppSettings: ObservableObject {
         var defaultSnoozeMinutes: Int?
         var quickStartMinutes: [Int]?
         var quickStartPresets: [QuickStartPreset]?
+        var routines: [TimerRoutine]?
         var askForLabelAfterDrag: Bool?
         var firePastDueOnWake: Bool?
         var menuBarDisplayMode: MenuBarDisplayMode?
@@ -114,6 +115,7 @@ final class AppSettings: ObservableObject {
     @Published var defaultLabel: String { didSet { persist() } }
     @Published var defaultSnoozeMinutes: Int { didSet { persist() } }
     @Published private(set) var quickStartPresets: [QuickStartPreset]
+    @Published private(set) var routines: [TimerRoutine]
     @Published var askForLabelAfterDrag: Bool { didSet { persist() } }
     @Published var firePastDueOnWake: Bool { didSet { persist() } }
     @Published var menuBarDisplayMode: MenuBarDisplayMode { didSet { persist() } }
@@ -190,6 +192,7 @@ final class AppSettings: ObservableObject {
             )
             quickStartPresets = Self.presets(from: legacyMinutes, alert: alert)
         }
+        routines = Self.sanitizeRoutines(stored?.routines ?? [])
 
         // Persist once to make migrations stable across subsequent launches.
         persist()
@@ -295,6 +298,65 @@ final class AppSettings: ObservableObject {
         setQuickStartMinutes(Self.defaultQuickStartMinutes)
     }
 
+    @discardableResult
+    func addRoutine(_ routine: TimerRoutine) -> Bool {
+        let sanitized = Self.sanitizeRoutine(routine)
+        guard sanitized.isValid else { return false }
+        routines.append(sanitized)
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func updateRoutine(_ routine: TimerRoutine) -> Bool {
+        let sanitized = Self.sanitizeRoutine(routine)
+        guard sanitized.isValid,
+              let index = routines.firstIndex(where: { $0.id == routine.id }) else { return false }
+        routines[index] = sanitized
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func duplicateRoutine(id: UUID) -> Bool {
+        guard let index = routines.firstIndex(where: { $0.id == id }) else { return false }
+        let source = routines[index]
+        let copy = TimerRoutine(
+            name: "\(source.name) Copy",
+            timers: source.timers.map {
+                RoutineTimerDefinition(duration: $0.duration, options: $0.options)
+            }
+        )
+        routines.insert(copy, at: index + 1)
+        persist()
+        return true
+    }
+
+    func removeRoutine(id: UUID) {
+        routines.removeAll { $0.id == id }
+        persist()
+    }
+
+    func moveRoutine(id: UUID, offset: Int) {
+        guard let source = routines.firstIndex(where: { $0.id == id }) else { return }
+        let destination = min(max(source + offset, 0), routines.count - 1)
+        guard source != destination else { return }
+        let routine = routines.remove(at: source)
+        routines.insert(routine, at: destination)
+        persist()
+    }
+
+    func moveRoutines(fromOffsets: IndexSet, toOffset: Int) {
+        var values = routines
+        let moving = fromOffsets.sorted().map { values[$0] }
+        for index in fromOffsets.sorted(by: >) { values.remove(at: index) }
+        let removedBeforeDestination = fromOffsets.filter { $0 < toOffset }.count
+        let destination = min(max(toOffset - removedBeforeDestination, 0), values.count)
+        values.insert(contentsOf: moving, at: destination)
+        routines = values
+        persist()
+    }
+
     func setMaximumDragDurationHours(_ hours: Int) {
         let clampedHours = min(
             max(hours, Self.maximumDragDurationHoursRange.lowerBound),
@@ -328,9 +390,17 @@ final class AppSettings: ObservableObject {
         )
     }
 
+    private static func sanitizeRoutines(_ routines: [TimerRoutine]) -> [TimerRoutine] {
+        routines.map(sanitizeRoutine).filter(\.isValid)
+    }
+
+    private static func sanitizeRoutine(_ routine: TimerRoutine) -> TimerRoutine {
+        TimerRoutine(id: routine.id, name: routine.name, timers: routine.timers)
+    }
+
     private func persist() {
         let stored = StoredSettings(
-            version: 2,
+            version: 3,
             preset: preset,
             physics: physics,
             hapticsEnabled: hapticsEnabled,
@@ -343,6 +413,7 @@ final class AppSettings: ObservableObject {
             defaultSnoozeMinutes: defaultSnoozeMinutes,
             quickStartMinutes: nil,
             quickStartPresets: quickStartPresets,
+            routines: routines,
             askForLabelAfterDrag: askForLabelAfterDrag,
             firePastDueOnWake: firePastDueOnWake,
             menuBarDisplayMode: menuBarDisplayMode,
