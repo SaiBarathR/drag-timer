@@ -102,7 +102,9 @@ enum SnapGrid {
         4 * 60 * 60,
         6 * 60 * 60,
         8 * 60 * 60,
-        12 * 60 * 60
+        12 * 60 * 60,
+        18 * 60 * 60,
+        24 * 60 * 60
     ]
 
     static func nearest(to duration: TimeInterval, settings: DragPhysicsSettings) -> TimeInterval? {

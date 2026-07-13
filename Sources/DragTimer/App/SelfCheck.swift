@@ -19,6 +19,7 @@ enum SelfCheck {
             try verifyInertiaProjection()
             try verifySpringSettlement()
             try verifyDeadlineHeap()
+            try verifyMenuBarCountdown()
             try verifyPersistenceRoundTrip()
             try verifyTimerDefaultsPersistence()
             try verifyTimerLifecycle()
@@ -42,6 +43,17 @@ enum SelfCheck {
         try require(abs(mapper.duration(forDistance: 0) - 60) < 0.001, "minimum duration mapping")
         try require(abs(mapper.duration(forDistance: 600) - 14_400) < 0.001, "maximum duration mapping")
         try require(SnapGrid.nearest(to: 305, settings: settings) == 300, "five-minute snap")
+
+        settings.maximumDuration = 24 * 60 * 60
+        let expandedMapper = DurationMapper(settings: settings)
+        try require(
+            abs(expandedMapper.duration(forDistance: 600) - (24 * 60 * 60)) < 0.001,
+            "expanded maximum duration mapping"
+        )
+        try require(
+            SnapGrid.nearest(to: 24 * 60 * 60, settings: settings) == 24 * 60 * 60,
+            "twenty-four-hour snap"
+        )
     }
 
     private static func verifyInertiaProjection() throws {
@@ -93,6 +105,46 @@ enum SelfCheck {
         try require(heap.pop()?.id == third.id, "heap third deadline")
     }
 
+    private static func verifyMenuBarCountdown() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 100)
+        let options = TimerOptions(label: "Countdown")
+        let earliest = TimerRecord(
+            createdAt: start,
+            fireDate: start.addingTimeInterval(65),
+            options: options
+        )
+        let later = TimerRecord(
+            createdAt: start,
+            fireDate: start.addingTimeInterval(120),
+            options: options
+        )
+        var paused = TimerRecord(
+            createdAt: start,
+            fireDate: start.addingTimeInterval(30),
+            options: options
+        )
+        paused.pausedRemaining = 30
+
+        try require(
+            MenuBarCountdown.earliestRunningTimer(in: [later, paused, earliest])?.id == earliest.id,
+            "menu bar chooses earliest running timer"
+        )
+        try require(
+            MenuBarCountdown.earliestRunningTimer(in: [paused]) == nil,
+            "menu bar excludes paused timers"
+        )
+        try require(MenuBarCountdown.text(for: earliest, at: start) == "1:05", "minute countdown format")
+        try require(
+            MenuBarCountdown.text(forRemaining: (2 * 60 * 60) + (25 * 60) + 59) == "2h 25m",
+            "hour countdown format"
+        )
+        try require(
+            MenuBarCountdown.text(forRemaining: (26 * 60 * 60) + 59) == "1d 2h",
+            "day countdown format"
+        )
+        try require(MenuBarCountdown.text(forRemaining: 0.1) == "0:01", "countdown does not expire early")
+    }
+
     private static func verifyPersistenceRoundTrip() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("DragTimerSelfCheck-\(UUID().uuidString)", isDirectory: true)
@@ -123,6 +175,7 @@ enum SelfCheck {
         settings.defaultSnoozeMinutes = 12
         settings.askForLabelAfterDrag = false
         settings.setQuickStartMinutes([30, 5, 30, 120])
+        settings.setMaximumDragDurationHours(12)
 
         let restored = AppSettings(defaults: defaults)
         let options = restored.defaultOptions()
@@ -134,6 +187,11 @@ enum SelfCheck {
         try require(options.snoozeMinutes == 12, "default snooze persists")
         try require(!restored.askForLabelAfterDrag, "drag label prompt preference persists")
         try require(restored.quickStartMinutes == [5, 30, 120], "quick start presets persist and normalize")
+        try require(restored.maximumDragDurationHours == 12, "maximum drag duration persists")
+        restored.setMaximumDragDurationHours(48)
+        try require(restored.maximumDragDurationHours == 24, "maximum drag duration clamps high")
+        restored.setMaximumDragDurationHours(2)
+        try require(restored.maximumDragDurationHours == 4, "maximum drag duration clamps low")
         try require(
             TimerOptions(label: "Legacy", soundName: "Pulse").soundName == AlertSound.glass.rawValue,
             "legacy Pulse sound normalizes to Glass"

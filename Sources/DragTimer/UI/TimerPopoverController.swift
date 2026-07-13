@@ -1,18 +1,34 @@
 import AppKit
 import SwiftUI
 
+struct TimerPopoverActions {
+    let cancelAll: () -> Void
+    let dismissPopover: () -> Void
+
+    func stopAll() {
+        cancelAll()
+        dismissPopover()
+    }
+}
+
 final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
+    private let timerEngine: TimerEngine
     private let onOpenSettings: () -> Void
     private weak var anchorView: NSView?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
+    private lazy var actions = TimerPopoverActions(
+        cancelAll: { [weak self] in self?.timerEngine.cancelAll() },
+        dismissPopover: { [weak self] in self?.popover.performClose(nil) }
+    )
 
     init(
         timerEngine: TimerEngine,
         settings: AppSettings,
         onOpenSettings: @escaping () -> Void
     ) {
+        self.timerEngine = timerEngine
         self.onOpenSettings = onOpenSettings
         super.init()
 
@@ -25,6 +41,9 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                 settings: settings,
                 onOpenSettings: { [weak self] in
                     self?.openSettings()
+                },
+                onStopAll: { [weak self] in
+                    self?.actions.stopAll()
                 }
             )
         )
@@ -118,6 +137,7 @@ private struct TimerListView: View {
     @ObservedObject var timerEngine: TimerEngine
     @ObservedObject var settings: AppSettings
     let onOpenSettings: () -> Void
+    let onStopAll: () -> Void
 
     @State private var now = Date()
     @State private var isVisible = false
@@ -288,7 +308,7 @@ private struct TimerListView: View {
         HStack {
             if !timerEngine.timers.isEmpty || timerEngine.activeAlert != nil {
                 Button("Stop all") {
-                    timerEngine.cancelAll()
+                    onStopAll()
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.red)

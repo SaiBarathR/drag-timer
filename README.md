@@ -14,12 +14,14 @@ It is a Swift/AppKit app for macOS 14 and later. It has no Dock icon and keeps t
 ## What it does
 
 - Create a timer by dragging from the menu-bar clock icon.
+- See the countdown for the timer that will finish first directly in the menu bar.
 - Start 5, 10, 15, or 30 minute and 1, 2, 3, or 4 hour timers with one click.
 - Pause, resume, reset, edit, snooze, or cancel timers from the menu-bar popover.
 - Stop every active timer at once.
 - Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
 - Receive a macOS notification with sound when a timer finishes.
 - Set defaults for every new timer in Preferences.
+- Raise the maximum drag-created timer from 4 hours up to 24 hours in Preferences.
 - Snap to useful durations and feel a haptic tick when crossing a snap point, with lighter detent ticks as the duration scrubs in between.
 - Keep timers correct across sleep, wake, and relaunch by storing absolute fire dates.
 - Optionally launch at login and choose whether missed timers fire after wake.
@@ -60,7 +62,7 @@ The top section controls defaults for timers created after the change:
 
 Quick start presets are also customizable in Preferences. Enter the durations in minutes; for example, `5, 15, 30, 60, 120` creates buttons for 5, 15, and 30 minutes plus 1 and 2 hours.
 
-The rest of the window controls drag feel, snap range, trackpad haptics, wake behavior, and launch at login. System beep follows your Mac’s alert volume; Glass uses Drag Timer’s volume setting.
+The rest of the window controls the maximum drag duration (4–24 hours), drag feel, snap range, trackpad haptics, wake behavior, and launch at login. System beep follows your Mac’s alert volume; Glass uses Drag Timer’s volume setting.
 
 ## Build from source
 
@@ -80,12 +82,15 @@ The script applies an **ad-hoc** code signature to the bundle — required for t
 
 ## Verify
 
-The deterministic checks cover duration mapping, inertial release, spring settlement, persistence, timer defaults, and the looping-alert priority path.
+The XCTest suite and deterministic checks cover duration mapping, inertial release, spring settlement, menu-bar countdown selection and formatting, maximum-duration persistence, Stop all behavior, timer defaults, and the looping-alert priority path.
 
 ```sh
 swift build
+swift test
 swift run DragTimer --self-test
 ```
+
+`swift test` requires the XCTest support included with full Xcode. If `xcode-select` points at Command Line Tools while Xcode is installed in Applications, run it as `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
 
 ## Release automation
 

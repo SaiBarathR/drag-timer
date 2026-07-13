@@ -19,6 +19,9 @@ jobs:
       - name: Build
         run: swift build
 
+      - name: Run unit tests
+        run: swift test
+
       - name: Run deterministic checks
         run: swift run DragTimer --self-test
 
