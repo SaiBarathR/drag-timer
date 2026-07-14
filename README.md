@@ -1,8 +1,12 @@
+<p align="center">
+  <img src="Packaging/AppIcon-master.png" width="160" alt="Drag Timer application icon">
+</p>
+
 # Drag Timer
 
 Drag Timer is a native macOS menu-bar timer built around a single gesture: pull time out of the menu-bar icon, release it, and the timer starts. Distance chooses a whole-minute duration, a moving release adds momentum, and useful intervals snap into place with trackpad feedback.
 
-It is a Swift/AppKit app for macOS 14 and later. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
+It is a universal Swift/AppKit app for Apple Silicon and Intel Macs running macOS 14 or later. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
 
 ## What it does
 
@@ -26,14 +30,19 @@ It is a Swift/AppKit app for macOS 14 and later. It has no Dock icon. Active tim
 
 ## Install a release
 
-Releases include `Drag-Timer-<version>-macos.zip` and `SHA256SUMS.txt`.
+Releases include `Drag-Timer-<version>-macos-universal.zip` and `SHA256SUMS.txt`. Each app contains native `arm64` and `x86_64` executable slices.
 
-1. Download and unzip the archive from the [Releases](https://github.com/SaiBarathR/drag-timer/releases) page.
-2. Move `Drag Timer.app` to Applications.
+1. Download the ZIP and `SHA256SUMS.txt` from the [Releases](https://github.com/SaiBarathR/drag-timer/releases) page.
+2. Verify the checksum, then unzip the archive and move `Drag Timer.app` to Applications.
 3. Because releases are ad-hoc signed rather than notarized with a Developer ID, macOS will show a Gatekeeper warning on first launch. Control-click the app, choose **Open**, then confirm; alternatively use **Open Anyway** in System Settings → Privacy & Security.
 4. Drag from the menu-bar timer icon to create your first timer.
 
-Verify the published SHA-256 checksum before opening a downloaded build when you want to confirm its integrity.
+Verify the published SHA-256 checksum before opening a downloaded build:
+
+```sh
+cd ~/Downloads
+shasum -a 256 -c SHA256SUMS.txt
+```
 
 ## Use
 
@@ -97,19 +106,35 @@ swift run DragTimer --self-test
 
 `swift test` requires the XCTest support included with full Xcode. If `xcode-select` points at Command Line Tools while Xcode is installed in Applications, run it as `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
 
+Inspect the packaged app when validating a release build:
+
+```sh
+lipo -archs "dist/Drag Timer.app/Contents/MacOS/DragTimer"
+codesign --verify --deep --strict --verbose=2 "dist/Drag Timer.app"
+plutil -p "dist/Drag Timer.app/Contents/Info.plist"
+```
+
 ## Release automation
 
 GitHub Actions is configured for macOS 14:
 
-- [CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It builds the app, runs self-checks, packages the bundle, and confirms it carries a valid ad-hoc signature.
-- [Release](.github/workflows/release.yml) runs when a `v*` tag is pushed. It builds the tagged source, creates a ZIP and SHA-256 checksum, then publishes them to the matching GitHub release.
+- [CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It builds and tests the source, exercises validator failures, packages both CPU architectures, and verifies the icon and ad-hoc signature.
+- [Release](.github/workflows/release.yml) independently repeats every source and packaging gate for the exact tag. It extracts and verifies the final ZIP before publishing, uses the matching tracked notes as the release body, and refuses to overwrite an existing release.
 
-To publish a new version after updating `Packaging/Info.plist`:
+To publish version `vX.Y.Z`, first update `CFBundleShortVersionString` and the positive `CFBundleVersion` in `Packaging/Info.plist`, then add `docs/releases/vX.Y.Z.md`. Validate locally before creating the annotated tag:
 
 ```sh
-git tag -a v1.0.0 -m "Drag Timer 1.0.0"
-git push origin v1.0.0
+./Scripts/validate-release.sh vX.Y.Z
+./Scripts/test-validate-release.sh
+swift build
+swift test
+swift run DragTimer --self-test
+./Scripts/build-app.sh
+git tag -a vX.Y.Z -m "Drag Timer X.Y.Z"
+git push origin vX.Y.Z
 ```
+
+The workflow also supports a manual dry run before tagging: provide the intended `vX.Y.Z` tag and the exact branch or commit SHA to package. Do not create the tag until the matching [release checklist](docs/release-checklists/) has passed against that release-candidate artifact.
 
 ## Architecture
 
@@ -122,3 +147,7 @@ git push origin v1.0.0
 ## Privacy
 
 Drag Timer does not require an account, telemetry SDK, or cloud history. Timer metadata remains on the local Mac and history is capped at 500 entries or 90 days. When update checks are enabled, the app requests only public release metadata from GitHub; it never uploads timer data or downloads an installer. Notifications are requested from macOS only when the packaged app runs.
+
+## License
+
+Drag Timer is open-source software available under the [MIT License](LICENSE).
