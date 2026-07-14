@@ -6,7 +6,7 @@
 
 Drag Timer is a native macOS menu-bar timer built around a single gesture: pull time out of the menu-bar icon, release it, and the timer starts. Distance chooses a whole-minute duration, a moving release adds momentum, and useful intervals snap into place with trackpad feedback.
 
-It is a universal Swift/AppKit app for Apple Silicon and Intel Macs running macOS 14 or later. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
+It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime is verified. The bundle also contains a native `x86_64` slice, but physical Intel runtime testing was unavailable for v1.3.1, so Intel support remains provisional rather than verified. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
 
 ## What it does
 
@@ -30,7 +30,7 @@ It is a universal Swift/AppKit app for Apple Silicon and Intel Macs running macO
 
 ## Install a release
 
-Releases include `Drag-Timer-<version>-macos-universal.zip` and `SHA256SUMS.txt`. Each app contains native `arm64` and `x86_64` executable slices.
+Releases include `Drag-Timer-<version>-macos-universal.zip` and `SHA256SUMS.txt`. Each app contains native `arm64` and `x86_64` executable slices. Apple Silicon is the verified v1.3.1 release audience; the Intel slice is included for provisional use because no physical Intel test Mac was available.
 
 1. Download the ZIP and `SHA256SUMS.txt` from the [Releases](https://github.com/SaiBarathR/drag-timer/releases) page.
 2. Verify the checksum, then unzip the archive and move `Drag Timer.app` to Applications.
