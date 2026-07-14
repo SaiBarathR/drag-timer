@@ -25,14 +25,16 @@ jobs:
       - name: Run deterministic checks
         run: swift run DragTimer --self-test
 
-      - name: Build the app bundle
+      - name: Test release validator
+        run: ./Scripts/test-validate-release.sh
+
+      - name: Build the universal app bundle
         run: ./Scripts/build-app.sh
 
-      - name: Confirm the bundle has a valid ad-hoc signature
+      - name: Verify architectures, icon, and ad-hoc signature
         run: |
-          codesign --verify --deep --strict "dist/Drag Timer.app"
-          authority="$(codesign --display --verbose=2 "dist/Drag Timer.app" 2>&1 | grep '^Signature=' || true)"
-          if [ "$authority" != "Signature=adhoc" ]; then
-            echo "The release bundle must carry an ad-hoc signature, got: ${authority:-none}"
-            exit 1
-          fi
+          executable="dist/Drag Timer.app/Contents/MacOS/DragTimer"
+          test "$(lipo -archs "$executable" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')" = "arm64 x86_64"
+          test -s "dist/Drag Timer.app/Contents/Resources/AppIcon.icns"
+          codesign --verify --deep --strict --verbose=2 "dist/Drag Timer.app"
+          test "$(codesign --display --verbose=2 "dist/Drag Timer.app" 2>&1 | sed -n 's/^Signature=//p')" = "adhoc"

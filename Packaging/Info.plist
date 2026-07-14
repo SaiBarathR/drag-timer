@@ -6,6 +6,8 @@
     <string>en</string>
     <key>CFBundleDisplayName</key>
     <string>Drag Timer</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleExecutable</key>
     <string>DragTimer</string>
     <key>CFBundleIdentifier</key>
@@ -17,9 +19,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-	<string>1.3.0</string>
+	<string>1.3.1</string>
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>5</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
