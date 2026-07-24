@@ -151,10 +151,21 @@ final class AppSettings: ObservableObject {
         let stored = defaults.data(forKey: storageKey)
             .flatMap { try? JSONDecoder().decode(StoredSettings.self, from: $0) }
 
-        preset = stored?.preset ?? .snappy
+        let restoredPreset = stored?.preset ?? .snappy
+        preset = restoredPreset
         var restoredPhysics = (stored?.physics ?? .forPreset(.snappy)).sanitized
         if restoredPhysics.snapTolerance == 12 {
             restoredPhysics.snapTolerance = 24
+        }
+        if restoredPhysics.mappingVersion != DragPhysicsSettings.currentMappingVersion {
+            // The mapper now scrubs the detent ladder on a fixed ruler scale,
+            // so feel parameters tuned against the old exponential mapping
+            // would feel wrong. Re-derive them from the chosen preset; custom
+            // settings keep their feel parameters since geometry is fixed.
+            if restoredPreset != .custom {
+                restoredPhysics = .forPreset(restoredPreset, basedOn: restoredPhysics)
+            }
+            restoredPhysics.mappingVersion = DragPhysicsSettings.currentMappingVersion
         }
         physics = restoredPhysics
         hapticsEnabled = stored?.hapticsEnabled ?? true

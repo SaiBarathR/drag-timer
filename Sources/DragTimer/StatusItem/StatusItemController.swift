@@ -392,7 +392,11 @@ private final class StatusItemCaptureView: NSView {
                 continue
             }
 
-            let pointer = NSEvent.mouseLocation
+            // Use the event's own location so it pairs with the event's
+            // timestamp. Reading NSEvent.mouseLocation here mixed the current
+            // hardware position with an older timestamp, which corrupted the
+            // velocity estimate whenever drag events queued up.
+            let pointer = pointerLocation(for: nextEvent)
             switch nextEvent.type {
             case .leftMouseDragged:
                 if !didBeginDrag {
@@ -416,6 +420,11 @@ private final class StatusItemCaptureView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         onSecondaryClick?()
+    }
+
+    private func pointerLocation(for event: NSEvent) -> CGPoint {
+        guard let eventWindow = event.window else { return event.locationInWindow }
+        return eventWindow.convertPoint(toScreen: event.locationInWindow)
     }
 
     private var timerIconCenter: CGPoint {

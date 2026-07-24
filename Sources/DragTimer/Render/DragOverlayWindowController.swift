@@ -10,7 +10,11 @@ final class DragOverlayWindowController {
     private let panel: DragOverlayPanel
     private let surface: DragSurfaceView
 
-    init(countdownScale: CountdownScale = .standard, highContrast: Bool = false) {
+    init(
+        rulerLayout: DragRulerLayout,
+        countdownScale: CountdownScale = .standard,
+        highContrast: Bool = false
+    ) {
         let frame = Self.allScreenFrame()
         panel = DragOverlayPanel(
             contentRect: frame,
@@ -20,6 +24,7 @@ final class DragOverlayWindowController {
         )
         surface = DragSurfaceView(
             frame: NSRect(origin: .zero, size: frame.size),
+            rulerLayout: rulerLayout,
             countdownScale: countdownScale,
             highContrast: highContrast
         )
@@ -74,6 +79,7 @@ final class DragOverlayWindowController {
 }
 
 private final class DragSurfaceView: NSView {
+    private let rulerLayout: DragRulerLayout
     private let countdownScale: CountdownScale
     private let highContrast: Bool
     // The line assembly lives inside a container rotated around the origin, so
@@ -102,9 +108,8 @@ private final class DragSurfaceView: NSView {
         static let strokeHeightSnapped: CGFloat = 4
         static let glowHeight: CGFloat = 11
         static let glowHeightSnapped: CGFloat = 15
-        static let tickSpacing: CGFloat = 28
         static let tickHalfHeight: CGFloat = 3.5
-        static let tickLeadingOffset: CGFloat = 26
+        static let majorTickHalfHeight: CGFloat = 7
         static let tickTrailingMargin: CGFloat = 32
         static let labelHeight: CGFloat = 58
     }
@@ -112,7 +117,13 @@ private final class DragSurfaceView: NSView {
     private static var accentColor: NSColor { .controlAccentColor }
     private static var snapColor: NSColor { .systemMint }
 
-    init(frame frameRect: NSRect, countdownScale: CountdownScale, highContrast: Bool) {
+    init(
+        frame frameRect: NSRect,
+        rulerLayout: DragRulerLayout,
+        countdownScale: CountdownScale,
+        highContrast: Bool
+    ) {
+        self.rulerLayout = rulerLayout
         self.countdownScale = countdownScale
         self.highContrast = highContrast
         super.init(frame: frameRect)
@@ -193,11 +204,14 @@ private final class DragSurfaceView: NSView {
         glowLayer.cornerRadius = glowHeight / 2
 
         ticksLayer.frame = lineContainer.bounds
-        let usableLength = length - Metrics.tickLeadingOffset - Metrics.tickTrailingMargin
-        let tickCount = max(0, Int(usableLength / Metrics.tickSpacing) + 1)
+        // Ticks are a true ruler: one per ladder rung at the exact rung
+        // spacing, never rescaled, and never drawn past the last rung.
+        let usableLength = length - CGFloat(rulerLayout.leadingOffset) - Metrics.tickTrailingMargin
+        let visibleTicks = max(0, Int(usableLength / CGFloat(rulerLayout.tickSpacing)) + 1)
+        let tickCount = min(rulerLayout.tickCount, visibleTicks)
         if tickCount != lastTickCount {
             lastTickCount = tickCount
-            ticksLayer.path = Self.tickPath(count: tickCount, midY: midY)
+            ticksLayer.path = tickPath(count: tickCount, midY: midY)
         }
     }
 
@@ -385,12 +399,16 @@ private final class DragSurfaceView: NSView {
         layer?.addSublayer(labelLayer)
     }
 
-    private static func tickPath(count: Int, midY: CGFloat) -> CGPath {
+    private func tickPath(count: Int, midY: CGFloat) -> CGPath {
         let path = CGMutablePath()
         for index in 0..<count {
-            let x = Metrics.tickLeadingOffset + CGFloat(index) * Metrics.tickSpacing
-            path.move(to: CGPoint(x: x, y: midY - Metrics.tickHalfHeight))
-            path.addLine(to: CGPoint(x: x, y: midY + Metrics.tickHalfHeight))
+            let x = CGFloat(rulerLayout.leadingOffset)
+                + CGFloat(index) * CGFloat(rulerLayout.tickSpacing)
+            let halfHeight = rulerLayout.majorTickIndices.contains(index)
+                ? Metrics.majorTickHalfHeight
+                : Metrics.tickHalfHeight
+            path.move(to: CGPoint(x: x, y: midY - halfHeight))
+            path.addLine(to: CGPoint(x: x, y: midY + halfHeight))
         }
         return path
     }

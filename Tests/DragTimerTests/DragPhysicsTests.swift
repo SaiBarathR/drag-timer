@@ -44,28 +44,57 @@ final class DragPhysicsTests: XCTestCase {
         XCTAssertEqual(release.duration.truncatingRemainder(dividingBy: DragDurationGrid.step), 0)
     }
 
-    func testReleaseFreshnessBoundaryPreservesFullThrowUntilItExpires() {
+    func testReleaseMomentumFadesLinearlyWithSampleAge() {
         var immediate = movingThrowablePhysics()
         let immediateRelease = immediate.release(at: 1.1)
 
-        var justFresh = movingThrowablePhysics()
-        let justFreshRelease = justFresh.release(
-            at: 1.1 + DragPhysics.releaseVelocityLifetime - 0.001
+        var halfAged = movingThrowablePhysics()
+        let halfAgedRelease = halfAged.release(
+            at: 1.1 + DragPhysics.releaseVelocityLifetime / 2
         )
+
+        var expired = movingThrowablePhysics()
+        let expiredPreview = expired.displayDuration
+        let expiredRelease = expired.release(at: 1.1 + DragPhysics.releaseVelocityLifetime)
 
         var stale = movingThrowablePhysics()
         let stalePreview = stale.displayDuration
-        let staleRelease = stale.release(at: 1.1 + DragPhysics.releaseVelocityLifetime)
-
-        var justStale = movingThrowablePhysics()
-        let justStalePreview = justStale.displayDuration
-        let justStaleRelease = justStale.release(
+        let staleRelease = stale.release(
             at: 1.1 + DragPhysics.releaseVelocityLifetime + 0.001
         )
 
-        XCTAssertEqual(justFreshRelease.duration, immediateRelease.duration)
+        // Fresher samples throw farther; the throw shrinks smoothly with age
+        // instead of flipping between all and nothing at a hard boundary.
+        XCTAssertGreaterThan(immediateRelease.duration, halfAgedRelease.duration)
+        XCTAssertGreaterThan(halfAgedRelease.duration, expiredRelease.duration)
+        XCTAssertEqual(expiredRelease.duration, expiredPreview)
         XCTAssertEqual(staleRelease.duration, stalePreview)
-        XCTAssertEqual(justStaleRelease.duration, justStalePreview)
+    }
+
+    func testPreciseAndSnappyReleaseCommitExactlyTheDisplayedValue() {
+        for preset in [FeelPreset.precise, .snappy] {
+            for snappingEnabled in [false, true] {
+                var settings = DragPhysicsSettings.forPreset(preset)
+                settings.snappingEnabled = snappingEnabled
+                settings.reduceMotion = true
+                var physics = DragPhysics(settings: settings)
+
+                physics.begin(at: 1)
+                _ = physics.updateDrag(distance: 120, timestamp: 1.05)
+                _ = physics.updateDrag(distance: 250, timestamp: 1.1)
+                let preview = physics.displayDuration
+                // Released mid-motion: the velocity sample is fresh, but these
+                // presets carry no momentum, so mouse-up commits exactly the
+                // number on screen.
+                let release = physics.release(at: 1.101)
+
+                XCTAssertEqual(
+                    release.duration,
+                    preview,
+                    "\(preset.displayName) release must commit exactly the displayed value"
+                )
+            }
+        }
     }
 
     func testSparseDragSamplesKeepMomentumWithinSamplingWindow() {
@@ -93,14 +122,150 @@ final class DragPhysicsTests: XCTestCase {
         var physics = DragPhysics(settings: settings)
 
         physics.begin(at: 1)
-        _ = physics.updateDrag(distance: 114, timestamp: 1.1)
-        XCTAssertEqual(physics.displayDuration, 60)
+        _ = physics.updateDrag(distance: 145, timestamp: 1.1)
+        XCTAssertEqual(physics.displayDuration, 8 * 60)
 
-        _ = physics.updateReleaseDistance(119)
-        XCTAssertEqual(physics.displayDuration, 120)
+        _ = physics.updateReleaseDistance(152)
+        XCTAssertEqual(physics.displayDuration, 9 * 60)
 
         let release = physics.release(at: 1.4)
-        XCTAssertEqual(release.duration, 120)
+        XCTAssertEqual(release.duration, 9 * 60)
+    }
+
+    func testMappingScrubsDetentLadderUniformly() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.snappingEnabled = false
+        let mapper = DurationMapper(settings: settings)
+
+        let rungs = DurationLadder.rungs(for: settings)
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
+
+        // Every rung of the ladder costs the same fixed pixel travel, whether
+        // the step is worth one minute (early) or fifteen (late).
+        for (index, rung) in rungs.enumerated() {
+            XCTAssertEqual(
+                mapper.duration(forDistance: pixelsPerRung * Double(index)),
+                rung,
+                accuracy: 0.001,
+                "Rung \(index) should sit exactly \(index) uniform steps into the drag"
+            )
+        }
+
+        XCTAssertEqual(mapper.duration(forDistance: 0), settings.minimumDuration)
+        // Travel past the last rung clamps to the maximum.
+        XCTAssertEqual(
+            mapper.duration(forDistance: pixelsPerRung * Double(rungs.count - 1) + 300),
+            settings.maximumDuration,
+            accuracy: 0.001
+        )
+    }
+
+    func testMappingIsAbsoluteRegardlessOfMaximumDuration() {
+        var fourHour = DragPhysicsSettings.forPreset(.snappy)
+        fourHour.snappingEnabled = false
+        var twentyFourHour = fourHour
+        twentyFourHour.maximumDuration = 24 * 60 * 60
+
+        let shortMapper = DurationMapper(settings: fourHour)
+        let longMapper = DurationMapper(settings: twentyFourHour)
+
+        // 5m, 15m, and 1h live at the same absolute distance no matter the
+        // maximum-duration setting; raising the maximum only adds travel at
+        // the far end.
+        for distance in stride(from: 0.0, through: 700, by: 10) {
+            XCTAssertEqual(
+                shortMapper.duration(forDistance: distance),
+                longMapper.duration(forDistance: distance),
+                "Distance \(distance)pt should select the same value on both rulers"
+            )
+        }
+    }
+
+    func testLiveValueQuantizesToNearestLadderRung() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.snappingEnabled = false
+        let mapper = DurationMapper(settings: settings)
+
+        let rungs = DurationLadder.rungs(for: settings)
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
+
+        // Between rungs the readout holds the nearest rung instead of
+        // interpolating through every in-between value.
+        XCTAssertEqual(mapper.duration(forDistance: pixelsPerRung * 7.3), rungs[7])
+        XCTAssertEqual(mapper.duration(forDistance: pixelsPerRung * 7.7), rungs[8])
+
+        // The continuous variant still interpolates; snap-zone geometry and
+        // haptic detents depend on it.
+        XCTAssertEqual(
+            mapper.continuousDuration(forDistance: pixelsPerRung * 7.5),
+            (rungs[7] + rungs[8]) / 2,
+            accuracy: 0.001
+        )
+    }
+
+    func testDragPreviewOnlyEverShowsLadderValues() {
+        for preset in [FeelPreset.precise, .snappy, .throwable] {
+            var settings = DragPhysicsSettings.forPreset(preset)
+            settings.snappingEnabled = false
+            settings.reduceMotion = true
+            var physics = DragPhysics(settings: settings)
+            let rungs = Set(DurationLadder.rungs(for: settings.sanitized))
+
+            let rulerLength = DragPhysicsSettings.pointsPerRung * Double(rungs.count - 1)
+            physics.begin(at: 1)
+            var timestamp = 1.0
+            for distance in stride(from: 0.0, through: rulerLength + 60, by: 3.7) {
+                timestamp += 1.0 / 120.0
+                _ = physics.updateDrag(distance: distance, timestamp: timestamp)
+                XCTAssertTrue(
+                    rungs.contains(physics.displayDuration),
+                    "\(preset.displayName) preview \(physics.displayDuration) at \(distance)pt is not a ladder rung"
+                )
+            }
+        }
+    }
+
+    func testRawRungPositionStaysContinuousForHapticDetents() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.snappingEnabled = false
+        settings.reduceMotion = true
+        var physics = DragPhysics(settings: settings)
+
+        let rungs = DurationLadder.rungs(for: settings)
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
+
+        physics.begin(at: 1)
+        XCTAssertEqual(physics.rawRungPosition, 0)
+
+        _ = physics.updateDrag(distance: pixelsPerRung * 7.25, timestamp: 1.05)
+        XCTAssertEqual(physics.rawRungPosition, 7.25, accuracy: 0.001)
+        XCTAssertEqual(physics.displayDuration, rungs[7])
+    }
+
+    func testSnapHoldsWithHysteresisUntilClearlyOutsideTheZone() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.reduceMotion = true
+        var physics = DragPhysics(settings: settings)
+
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
+        let fiveMinuteDistance = pixelsPerRung * 4
+        let toleranceRungs = SnapGrid.tolerance(settings: settings)
+        let justOutside = fiveMinuteDistance + (toleranceRungs + 0.02) * pixelsPerRung
+        let clearlyOutside = fiveMinuteDistance + (toleranceRungs * 1.6 + 0.05) * pixelsPerRung
+
+        physics.begin(at: 1)
+        _ = physics.updateDrag(distance: fiveMinuteDistance, timestamp: 1.1)
+        XCTAssertTrue(physics.isSnapped)
+        XCTAssertEqual(physics.displayDuration, 5 * 60)
+
+        // Drifting just past the engage tolerance keeps the snap held...
+        _ = physics.updateDrag(distance: justOutside, timestamp: 1.2)
+        XCTAssertTrue(physics.isSnapped)
+        XCTAssertEqual(physics.displayDuration, 5 * 60)
+
+        // ...and only a clear exit releases it.
+        _ = physics.updateDrag(distance: clearlyOutside, timestamp: 1.3)
+        XCTAssertFalse(physics.isSnapped)
     }
 
     func testDurationRangeSanitizationKeepsWholeMinuteNonDegenerateBounds() {
