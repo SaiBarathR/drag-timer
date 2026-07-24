@@ -19,10 +19,11 @@ enum FeelPreset: String, Codable, CaseIterable, Identifiable {
 }
 
 struct DragPhysicsSettings: Codable, Equatable {
-    /// Version 2 scrubs uniformly through the detent ladder. Stored curve
-    /// parameters tuned against the old exponential mapping are re-derived
-    /// on launch when this marker is missing or older.
-    static let currentMappingVersion = 2
+    /// Version 3 releases deterministically: Precise and Snappy carry no
+    /// momentum, so mouse-up always commits exactly the displayed value.
+    /// Stored preset parameters tuned for earlier mappings are re-derived on
+    /// launch when this marker is missing or older.
+    static let currentMappingVersion = 3
 
     /// Fixed ruler scale: one ladder rung always costs this much travel.
     /// Distances are absolute and memorable — 5m, 15m, and 1h live at the same
@@ -43,13 +44,15 @@ struct DragPhysicsSettings: Codable, Equatable {
     static func forPreset(_ preset: FeelPreset, basedOn current: DragPhysicsSettings = DragPhysicsSettings()) -> DragPhysicsSettings {
         var settings = current
 
+        // Precise and Snappy carry no momentum: mouse-up commits exactly the
+        // number on screen. Only Throwable projects a release forward.
         switch preset {
         case .precise:
-            settings.inertiaStrength = 0.025
+            settings.inertiaStrength = 0
             settings.springStiffness = 210
             settings.springDamping = 29
         case .snappy:
-            settings.inertiaStrength = 0.075
+            settings.inertiaStrength = 0
             settings.springStiffness = 190
             settings.springDamping = 20
         case .throwable:
@@ -261,9 +264,11 @@ struct DragPhysics {
     /// delayed but valid sample does not erase an in-progress throw.
     static let maximumVelocitySampleInterval: TimeInterval = 0.25
 
-    /// Momentum older than this no longer represents a throw. Without this
-    /// cutoff, holding the pointer still retained the last positive velocity
-    /// indefinitely and mouse-up increased an already-stable preview.
+    /// Momentum fades linearly with the age of the last real drag sample and
+    /// is fully gone at this age. Without the fade, holding the pointer still
+    /// retained the last positive velocity indefinitely and mouse-up increased
+    /// an already-stable preview; a hard cutoff instead made near-boundary
+    /// releases an all-or-nothing lottery.
     static let releaseVelocityLifetime: TimeInterval = 0.12
 
     enum Phase: Equatable {
@@ -383,7 +388,11 @@ struct DragPhysics {
         }
 
         let velocityAge = max(0, timestamp - (lastTimestamp ?? timestamp))
-        let releaseVelocity = velocityAge < Self.releaseVelocityLifetime ? velocity : 0
+        // Linear fade instead of a hard cutoff: a release just inside the
+        // lifetime carries proportionally less throw than an instant one, so
+        // near-boundary releases are no longer an all-or-nothing lottery.
+        let freshness = max(0, 1 - velocityAge / Self.releaseVelocityLifetime)
+        let releaseVelocity = velocity * freshness
 
         let snap: TimeInterval?
         let finalDuration: TimeInterval

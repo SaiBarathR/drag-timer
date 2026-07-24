@@ -44,28 +44,57 @@ final class DragPhysicsTests: XCTestCase {
         XCTAssertEqual(release.duration.truncatingRemainder(dividingBy: DragDurationGrid.step), 0)
     }
 
-    func testReleaseFreshnessBoundaryPreservesFullThrowUntilItExpires() {
+    func testReleaseMomentumFadesLinearlyWithSampleAge() {
         var immediate = movingThrowablePhysics()
         let immediateRelease = immediate.release(at: 1.1)
 
-        var justFresh = movingThrowablePhysics()
-        let justFreshRelease = justFresh.release(
-            at: 1.1 + DragPhysics.releaseVelocityLifetime - 0.001
+        var halfAged = movingThrowablePhysics()
+        let halfAgedRelease = halfAged.release(
+            at: 1.1 + DragPhysics.releaseVelocityLifetime / 2
         )
+
+        var expired = movingThrowablePhysics()
+        let expiredPreview = expired.displayDuration
+        let expiredRelease = expired.release(at: 1.1 + DragPhysics.releaseVelocityLifetime)
 
         var stale = movingThrowablePhysics()
         let stalePreview = stale.displayDuration
-        let staleRelease = stale.release(at: 1.1 + DragPhysics.releaseVelocityLifetime)
-
-        var justStale = movingThrowablePhysics()
-        let justStalePreview = justStale.displayDuration
-        let justStaleRelease = justStale.release(
+        let staleRelease = stale.release(
             at: 1.1 + DragPhysics.releaseVelocityLifetime + 0.001
         )
 
-        XCTAssertEqual(justFreshRelease.duration, immediateRelease.duration)
+        // Fresher samples throw farther; the throw shrinks smoothly with age
+        // instead of flipping between all and nothing at a hard boundary.
+        XCTAssertGreaterThan(immediateRelease.duration, halfAgedRelease.duration)
+        XCTAssertGreaterThan(halfAgedRelease.duration, expiredRelease.duration)
+        XCTAssertEqual(expiredRelease.duration, expiredPreview)
         XCTAssertEqual(staleRelease.duration, stalePreview)
-        XCTAssertEqual(justStaleRelease.duration, justStalePreview)
+    }
+
+    func testPreciseAndSnappyReleaseCommitExactlyTheDisplayedValue() {
+        for preset in [FeelPreset.precise, .snappy] {
+            for snappingEnabled in [false, true] {
+                var settings = DragPhysicsSettings.forPreset(preset)
+                settings.snappingEnabled = snappingEnabled
+                settings.reduceMotion = true
+                var physics = DragPhysics(settings: settings)
+
+                physics.begin(at: 1)
+                _ = physics.updateDrag(distance: 120, timestamp: 1.05)
+                _ = physics.updateDrag(distance: 250, timestamp: 1.1)
+                let preview = physics.displayDuration
+                // Released mid-motion: the velocity sample is fresh, but these
+                // presets carry no momentum, so mouse-up commits exactly the
+                // number on screen.
+                let release = physics.release(at: 1.101)
+
+                XCTAssertEqual(
+                    release.duration,
+                    preview,
+                    "\(preset.displayName) release must commit exactly the displayed value"
+                )
+            }
+        }
     }
 
     func testSparseDragSamplesKeepMomentumWithinSamplingWindow() {
