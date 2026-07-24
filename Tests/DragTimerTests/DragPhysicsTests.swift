@@ -130,6 +130,66 @@ final class DragPhysicsTests: XCTestCase {
         )
     }
 
+    func testLiveValueQuantizesToNearestLadderRung() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.snappingEnabled = false
+        let mapper = DurationMapper(settings: settings)
+
+        let rungs = DurationLadder.rungs(for: settings)
+        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+
+        // Between rungs the readout holds the nearest rung instead of
+        // interpolating through every in-between value.
+        XCTAssertEqual(mapper.duration(forDistance: pixelsPerRung * 7.3), rungs[7])
+        XCTAssertEqual(mapper.duration(forDistance: pixelsPerRung * 7.7), rungs[8])
+
+        // The continuous variant still interpolates; snap-zone geometry and
+        // haptic detents depend on it.
+        XCTAssertEqual(
+            mapper.continuousDuration(forDistance: pixelsPerRung * 7.5),
+            (rungs[7] + rungs[8]) / 2,
+            accuracy: 0.001
+        )
+    }
+
+    func testDragPreviewOnlyEverShowsLadderValues() {
+        for preset in [FeelPreset.precise, .snappy, .throwable] {
+            var settings = DragPhysicsSettings.forPreset(preset)
+            settings.snappingEnabled = false
+            settings.reduceMotion = true
+            var physics = DragPhysics(settings: settings)
+            let rungs = Set(DurationLadder.rungs(for: settings.sanitized))
+
+            physics.begin(at: 1)
+            var timestamp = 1.0
+            for distance in stride(from: 0.0, through: settings.referenceDistance, by: 3.7) {
+                timestamp += 1.0 / 120.0
+                _ = physics.updateDrag(distance: distance, timestamp: timestamp)
+                XCTAssertTrue(
+                    rungs.contains(physics.displayDuration),
+                    "\(preset.displayName) preview \(physics.displayDuration) at \(distance)pt is not a ladder rung"
+                )
+            }
+        }
+    }
+
+    func testRawRungPositionStaysContinuousForHapticDetents() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.snappingEnabled = false
+        settings.reduceMotion = true
+        var physics = DragPhysics(settings: settings)
+
+        let rungs = DurationLadder.rungs(for: settings)
+        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+
+        physics.begin(at: 1)
+        XCTAssertEqual(physics.rawRungPosition, 0)
+
+        _ = physics.updateDrag(distance: pixelsPerRung * 7.25, timestamp: 1.05)
+        XCTAssertEqual(physics.rawRungPosition, 7.25, accuracy: 0.001)
+        XCTAssertEqual(physics.displayDuration, rungs[7])
+    }
+
     func testSnapHoldsWithHysteresisUntilClearlyOutsideTheZone() {
         var settings = DragPhysicsSettings.forPreset(.snappy)
         settings.reduceMotion = true

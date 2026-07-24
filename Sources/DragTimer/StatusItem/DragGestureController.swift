@@ -24,7 +24,6 @@ final class DragGestureController {
     private var pendingDuration: TimeInterval?
     private var lastLabelTimestamp: TimeInterval = 0
     private var lastDetentIndex: Int?
-    private var lastHapticTimestamp: TimeInterval = 0
 
     init(timerEngine: TimerEngine, settings: AppSettings, onPopoverRequested: @escaping () -> Void) {
         self.timerEngine = timerEngine
@@ -53,7 +52,6 @@ final class DragGestureController {
         pendingDuration = nil
         lastLabelTimestamp = 0
         lastDetentIndex = nil
-        lastHapticTimestamp = 0
 
         let overlay = DragOverlayWindowController(
             countdownScale: settings.countdownScale,
@@ -88,13 +86,16 @@ final class DragGestureController {
         let distance = hypot(dx, dy)
         let didActivate = !didMoveEnough && distance >= Self.activationDistance
         didMoveEnough = didMoveEnough || didActivate
-        let enteredSnap = physics.updateDrag(distance: distance, timestamp: timestamp)
+        let enteredSnap = physics.updateDrag(
+            distance: Self.mappedDistance(for: distance),
+            timestamp: timestamp
+        )
 
         self.physics = physics
         cursor = pointer
         displayLink?.retarget(to: screen(containing: pointer))
 
-        updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap, timestamp: timestamp)
+        updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap)
     }
 
     func end(pointer: CGPoint, timestamp: TimeInterval) {
@@ -105,11 +106,11 @@ final class DragGestureController {
         let dy = pointer.y - origin.y
         let finalDistance = hypot(dx, dy)
         let didActivate = !didMoveEnough && finalDistance >= Self.activationDistance
-        let enteredSnap = physics.updateReleaseDistance(finalDistance)
+        let enteredSnap = physics.updateReleaseDistance(Self.mappedDistance(for: finalDistance))
         self.physics = physics
         didMoveEnough = didMoveEnough || didActivate
 
-        updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap, timestamp: timestamp)
+        updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap)
         lastLabelTimestamp = timestamp
         overlay?.render(
             originScreen: origin,
@@ -223,45 +224,60 @@ final class DragGestureController {
         state = finalState
     }
 
-    /// One activation buzz, a firm tick when a snap zone engages, and a light
-    /// tick each time the scrubbed duration crosses a detent rung. The detents
+    /// Mapping starts where the drag activates, not at the raw press origin,
+    /// so a barely-activated drag reads exactly the minimum duration instead
+    /// of already sitting a rung or two into the ladder.
+    private static func mappedDistance(for distance: CGFloat) -> Double {
+        max(0, distance - activationDistance)
+    }
+
+    /// One activation buzz, a distinct double tick when a snap zone engages,
+    /// and a firm tick each time the drag crosses a detent rung. The detents
     /// are what make the drag feel mechanical on a Force Touch trackpad —
     /// snap-zone crossings alone are seconds apart and read as silence.
-    private func updateHaptics(didActivate: Bool, enteredSnap: Bool, timestamp: TimeInterval) {
+    private func updateHaptics(didActivate: Bool, enteredSnap: Bool) {
         guard settings.hapticsEnabled, let physics else { return }
-        let detent = Self.detentIndex(for: physics.displayDuration)
+        // The detent index comes from the raw geometric rung position, before
+        // snap or rounding, so tick timing matches hand movement exactly: one
+        // tick per rung boundary crossed, in either direction. The boundary
+        // sits at the rounding midpoint, which is also where the quantized
+        // readout changes.
+        let detent = Int(physics.rawRungPosition.rounded())
 
         if didActivate {
             // Performed while the finger is still down. macOS may suppress
             // haptics after mouse-up when the trackpad is no longer touched.
             performHaptic(.generic)
             lastDetentIndex = detent
-            lastHapticTimestamp = timestamp
             return
         }
 
         guard didMoveEnough else { return }
 
         if enteredSnap && settings.snapDuringDrag {
-            performHaptic(.alignment)
+            performSnapCaptureHaptic()
             lastDetentIndex = detent
-            lastHapticTimestamp = timestamp
             return
         }
 
-        if let lastDetentIndex, detent != lastDetentIndex, timestamp - lastHapticTimestamp >= 0.05 {
-            performHaptic(.levelChange)
-            lastHapticTimestamp = timestamp
+        // At most one tick per drag event: a fast scrub that jumps several
+        // rungs between events still marks the crossing with a single firm
+        // tick instead of machine-gunning — and no time-based throttle ever
+        // silently drops a boundary crossing.
+        if let lastDetentIndex, detent != lastDetentIndex {
+            performHaptic(.alignment)
         }
         lastDetentIndex = detent
     }
 
-    /// Crossing a rung of the shared duration ladder means the user scrubbed
-    /// past a value worth feeling. Because the drag mapping scrubs that same
-    /// ladder uniformly, ticks arrive at an even pixel cadence across the
-    /// whole drag instead of machine-gunning near the far end.
-    private static func detentIndex(for duration: TimeInterval) -> Int {
-        DurationLadder.index(for: duration)
+    /// Snap capture reads as a quick double tick so it stays distinguishable
+    /// from the single firm tick used for ordinary rung crossings.
+    private func performSnapCaptureHaptic() {
+        performHaptic(.alignment)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+            guard let self, self.state == .tracking || self.state == .settling else { return }
+            self.performHaptic(.alignment)
+        }
     }
 
     private func performHaptic(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {

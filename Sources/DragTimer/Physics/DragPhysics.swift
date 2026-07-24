@@ -159,18 +159,35 @@ struct DurationMapper {
         self.rungs = DurationLadder.rungs(for: settings)
     }
 
-    /// Distance maps to uniform progress along the rung ladder, so every scrub
-    /// step costs the same pixel travel whether the step is worth one minute or
-    /// thirty. `gamma` biases travel toward the low end (>1) or high end (<1).
-    func duration(forDistance distance: Double) -> TimeInterval {
-        guard rungs.count > 1 else { return settings.minimumDuration }
+    /// Continuous position along the rung array (0...rungs.count-1). Distance
+    /// maps to uniform progress along the ladder, so every scrub step costs the
+    /// same pixel travel whether the step is worth one minute or thirty.
+    /// `gamma` biases travel toward the low end (>1) or high end (<1).
+    func rungPosition(forDistance distance: Double) -> Double {
+        guard rungs.count > 1 else { return 0 }
         let clampedDistance = max(0, min(distance, settings.referenceDistance))
         let normalized = clampedDistance / settings.referenceDistance
         let shaped = pow(normalized, settings.gamma)
-        let position = shaped * Double(rungs.count - 1)
+        return shaped * Double(rungs.count - 1)
+    }
+
+    /// Interpolated duration between rungs. Snap-zone geometry needs this
+    /// continuous value; the readout uses the quantized `duration(forDistance:)`.
+    func continuousDuration(forDistance distance: Double) -> TimeInterval {
+        guard rungs.count > 1 else { return settings.minimumDuration }
+        let position = rungPosition(forDistance: distance)
         let lowerIndex = min(Int(position), rungs.count - 2)
         let fraction = position - Double(lowerIndex)
         return rungs[lowerIndex] + (rungs[lowerIndex + 1] - rungs[lowerIndex]) * fraction
+    }
+
+    /// The live value is the nearest ladder rung — never an interpolated
+    /// in-between. The readout steps 1m, 2m … 15m, 20m … like a mechanical
+    /// detent wheel instead of blurring through every minute.
+    func duration(forDistance distance: Double) -> TimeInterval {
+        guard rungs.count > 1 else { return settings.minimumDuration }
+        let index = Int(rungPosition(forDistance: distance).rounded())
+        return rungs[min(max(index, 0), rungs.count - 1)]
     }
 }
 
@@ -249,6 +266,9 @@ struct DragPhysics {
     private(set) var distance: Double = 0
     private(set) var velocity: Double = 0
     private(set) var targetDuration: TimeInterval?
+    /// Raw geometric rung position before snap or rounding. Haptic detents key
+    /// off this so tick timing tracks the hand, not the quantized readout.
+    private(set) var rawRungPosition: Double = 0
     var isSnapped: Bool { activeSnap != nil }
 
     private var lastTimestamp: TimeInterval?
@@ -269,6 +289,7 @@ struct DragPhysics {
         displayDuration = settings.minimumDuration
         distance = 0
         velocity = 0
+        rawRungPosition = 0
         lastDistance = 0
         lastTimestamp = timestamp
         activeSnap = nil
@@ -316,18 +337,24 @@ struct DragPhysics {
 
     private mutating func updateSelection(distance newDistance: Double) -> Bool {
         self.distance = newDistance
-        let rawDuration = mapper.duration(forDistance: newDistance)
-        var snap = SnapGrid.nearest(to: rawDuration, settings: settings)
+        rawRungPosition = mapper.rungPosition(forDistance: newDistance)
+        // Snap zones keep their continuous geometry so engage/release widths
+        // are unchanged; only the displayed value is quantized to a rung.
+        let continuousDuration = mapper.continuousDuration(forDistance: newDistance)
+        var snap = SnapGrid.nearest(to: continuousDuration, settings: settings)
         // Hysteresis: once a snap engages, hold it until the pointer moves
         // clearly outside the zone so jitter on the boundary doesn't flicker
         // the snap state (and its haptic/visual feedback) on and off.
         if snap == nil, let held = activeSnap, settings.snappingEnabled,
-           SnapGrid.rungDistance(from: rawDuration, to: held) <= SnapGrid.tolerance(settings: settings) * 1.6 {
+           SnapGrid.rungDistance(from: continuousDuration, to: held) <= SnapGrid.tolerance(settings: settings) * 1.6 {
             snap = held
         }
         let crossedIntoSnap = snap != nil && snap != activeSnap
         activeSnap = snap
-        displayDuration = DragDurationGrid.nearest(to: snap ?? rawDuration, settings: settings)
+        displayDuration = DragDurationGrid.nearest(
+            to: snap ?? mapper.duration(forDistance: newDistance),
+            settings: settings
+        )
         return crossedIntoSnap
     }
 
@@ -347,10 +374,10 @@ struct DragPhysics {
         let finalDuration: TimeInterval
         if releaseVelocity > 0, settings.inertiaStrength > 0 {
             let effectiveDistance = distance + releaseVelocity * settings.inertiaStrength
-            let projectedDuration = mapper.duration(forDistance: effectiveDistance)
+            let projectedDuration = mapper.continuousDuration(forDistance: effectiveDistance)
             snap = SnapGrid.nearest(to: projectedDuration, settings: settings)
             finalDuration = DragDurationGrid.nearest(
-                to: snap ?? projectedDuration,
+                to: snap ?? mapper.duration(forDistance: effectiveDistance),
                 settings: settings
             )
         } else {
