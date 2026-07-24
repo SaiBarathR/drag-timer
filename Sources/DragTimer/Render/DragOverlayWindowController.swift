@@ -7,43 +7,62 @@ private final class DragOverlayPanel: NSPanel {
 }
 
 final class DragOverlayWindowController {
-    private let panel: DragOverlayPanel
-    private let surface: DragSurfaceView
+    // With "Displays have separate Spaces" (the default), a window is
+    // composited on exactly one display, so a single union-frame panel is
+    // invisible on every other screen. One panel per screen keeps the overlay
+    // visible everywhere and gives each display its own backing scale.
+    private struct ScreenOverlay {
+        let panel: DragOverlayPanel
+        let surface: DragSurfaceView
+    }
+
+    private let overlays: [ScreenOverlay]
 
     init(
         rulerLayout: DragRulerLayout,
         countdownScale: CountdownScale = .standard,
         highContrast: Bool = false
     ) {
-        let frame = Self.allScreenFrame()
-        panel = DragOverlayPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        surface = DragSurfaceView(
-            frame: NSRect(origin: .zero, size: frame.size),
-            rulerLayout: rulerLayout,
-            countdownScale: countdownScale,
-            highContrast: highContrast
-        )
+        let screenFrames = NSScreen.screens.map(\.frame)
+        let panelFrames = screenFrames.isEmpty
+            ? [NSRect(x: 0, y: 0, width: 1, height: 1)]
+            : screenFrames
 
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.level = .statusBar
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.contentView = surface
+        overlays = panelFrames.map { frame in
+            let panel = DragOverlayPanel(
+                contentRect: frame,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            let surface = DragSurfaceView(
+                frame: NSRect(origin: .zero, size: frame.size),
+                rulerLayout: rulerLayout,
+                countdownScale: countdownScale,
+                highContrast: highContrast
+            )
+
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.level = .statusBar
+            panel.ignoresMouseEvents = true
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+            panel.contentView = surface
+            return ScreenOverlay(panel: panel, surface: surface)
+        }
     }
 
     func show() {
-        panel.orderFrontRegardless()
+        for overlay in overlays {
+            overlay.panel.orderFrontRegardless()
+        }
     }
 
     func hide() {
-        panel.orderOut(nil)
+        for overlay in overlays {
+            overlay.panel.orderOut(nil)
+        }
     }
 
     func render(
@@ -53,27 +72,25 @@ final class DragOverlayWindowController {
         isSnapped: Bool,
         updateText: Bool
     ) {
-        let localOrigin = localPoint(for: originScreen)
-        let localCursor = localPoint(for: cursorScreen)
-        surface.render(
-            origin: localOrigin,
-            cursor: localCursor,
-            duration: duration,
-            isSnapped: isSnapped,
-            updateText: updateText
-        )
-    }
+        // The duration label follows the cursor and clamps itself into the
+        // surface bounds, so it must render only on the cursor's display —
+        // on any other panel the clamp would pin a duplicate to the edge.
+        let labelIndex = overlays.firstIndex { $0.panel.frame.contains(cursorScreen) }
+            ?? overlays.firstIndex { $0.panel.frame.contains(originScreen) }
+            ?? 0
 
-    private func localPoint(for screenPoint: CGPoint) -> CGPoint {
-        CGPoint(x: screenPoint.x - panel.frame.minX, y: screenPoint.y - panel.frame.minY)
-    }
-
-    private static func allScreenFrame() -> NSRect {
-        guard let firstScreen = NSScreen.screens.first else {
-            return NSRect(x: 0, y: 0, width: 1, height: 1)
-        }
-        return NSScreen.screens.dropFirst().reduce(firstScreen.frame) { partialResult, screen in
-            partialResult.union(screen.frame)
+        for (index, overlay) in overlays.enumerated() {
+            let frame = overlay.panel.frame
+            let localOrigin = CGPoint(x: originScreen.x - frame.minX, y: originScreen.y - frame.minY)
+            let localCursor = CGPoint(x: cursorScreen.x - frame.minX, y: cursorScreen.y - frame.minY)
+            overlay.surface.render(
+                origin: localOrigin,
+                cursor: localCursor,
+                duration: duration,
+                isSnapped: isSnapped,
+                updateText: updateText,
+                showsLabel: index == labelIndex
+            )
         }
     }
 }
@@ -147,7 +164,8 @@ private final class DragSurfaceView: NSView {
         cursor: CGPoint,
         duration: TimeInterval,
         isSnapped: Bool,
-        updateText: Bool
+        updateText: Bool,
+        showsLabel: Bool = true
     ) {
         let dx = cursor.x - origin.x
         let dy = cursor.y - origin.y
@@ -169,10 +187,14 @@ private final class DragSurfaceView: NSView {
             applySnapAppearance(isSnapped)
         }
 
-        layoutLabel(cursor: cursor)
+        labelBackingLayer.isHidden = !showsLabel
+        labelLayer.isHidden = !showsLabel
+        if showsLabel {
+            layoutLabel(cursor: cursor)
 
-        if updateText {
-            updateLabelText(duration: duration, isSnapped: isSnapped)
+            if updateText {
+                updateLabelText(duration: duration, isSnapped: isSnapped)
+            }
         }
 
         CATransaction.commit()
