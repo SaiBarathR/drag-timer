@@ -41,18 +41,27 @@ enum SelfCheck {
         var settings = DragPhysicsSettings()
         settings.minimumDuration = 60
         settings.maximumDuration = 14_400
-        settings.referenceDistance = 600
         let mapper = DurationMapper(settings: settings)
+        let fullLength = DragPhysicsSettings.pointsPerRung
+            * Double(DurationLadder.rungs(for: settings).count - 1)
 
         try require(abs(mapper.duration(forDistance: 0) - 60) < 0.001, "minimum duration mapping")
-        try require(abs(mapper.duration(forDistance: 600) - 14_400) < 0.001, "maximum duration mapping")
+        try require(abs(mapper.duration(forDistance: fullLength) - 14_400) < 0.001, "maximum duration mapping")
         try require(SnapGrid.nearest(to: 305, settings: settings) == 300, "five-minute snap")
 
         settings.maximumDuration = 24 * 60 * 60
         let expandedMapper = DurationMapper(settings: settings)
+        let expandedLength = DragPhysicsSettings.pointsPerRung
+            * Double(DurationLadder.rungs(for: settings).count - 1)
         try require(
-            abs(expandedMapper.duration(forDistance: 600) - (24 * 60 * 60)) < 0.001,
+            abs(expandedMapper.duration(forDistance: expandedLength) - (24 * 60 * 60)) < 0.001,
             "expanded maximum duration mapping"
+        )
+        // The ruler is absolute: raising the maximum adds travel at the far
+        // end without moving any existing value.
+        try require(
+            abs(expandedMapper.duration(forDistance: fullLength) - 14_400) < 0.001,
+            "fixed ruler keeps four hours at the same distance"
         )
         try require(
             SnapGrid.nearest(to: 24 * 60 * 60, settings: settings) == 24 * 60 * 60,
@@ -128,10 +137,10 @@ enum SelfCheck {
         var physics = DragPhysics(settings: settings)
 
         physics.begin(at: 1)
-        _ = physics.updateDrag(distance: 114, timestamp: 1.1)
+        _ = physics.updateDrag(distance: 145, timestamp: 1.1)
         try require(physics.displayDuration == 8 * 60, "last dragged sample selects eight minutes")
 
-        _ = physics.updateReleaseDistance(122)
+        _ = physics.updateReleaseDistance(152)
         try require(physics.displayDuration == 9 * 60, "mouse-up distance reaches the next minute")
 
         let release = physics.release(at: 1.4)

@@ -93,10 +93,10 @@ final class DragPhysicsTests: XCTestCase {
         var physics = DragPhysics(settings: settings)
 
         physics.begin(at: 1)
-        _ = physics.updateDrag(distance: 114, timestamp: 1.1)
+        _ = physics.updateDrag(distance: 145, timestamp: 1.1)
         XCTAssertEqual(physics.displayDuration, 8 * 60)
 
-        _ = physics.updateReleaseDistance(122)
+        _ = physics.updateReleaseDistance(152)
         XCTAssertEqual(physics.displayDuration, 9 * 60)
 
         let release = physics.release(at: 1.4)
@@ -109,10 +109,10 @@ final class DragPhysicsTests: XCTestCase {
         let mapper = DurationMapper(settings: settings)
 
         let rungs = DurationLadder.rungs(for: settings)
-        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
 
-        // Every rung of the ladder costs the same pixel travel, whether the
-        // step is worth one minute (early) or fifteen (late).
+        // Every rung of the ladder costs the same fixed pixel travel, whether
+        // the step is worth one minute (early) or fifteen (late).
         for (index, rung) in rungs.enumerated() {
             XCTAssertEqual(
                 mapper.duration(forDistance: pixelsPerRung * Double(index)),
@@ -123,11 +123,33 @@ final class DragPhysicsTests: XCTestCase {
         }
 
         XCTAssertEqual(mapper.duration(forDistance: 0), settings.minimumDuration)
+        // Travel past the last rung clamps to the maximum.
         XCTAssertEqual(
-            mapper.duration(forDistance: settings.referenceDistance),
+            mapper.duration(forDistance: pixelsPerRung * Double(rungs.count - 1) + 300),
             settings.maximumDuration,
             accuracy: 0.001
         )
+    }
+
+    func testMappingIsAbsoluteRegardlessOfMaximumDuration() {
+        var fourHour = DragPhysicsSettings.forPreset(.snappy)
+        fourHour.snappingEnabled = false
+        var twentyFourHour = fourHour
+        twentyFourHour.maximumDuration = 24 * 60 * 60
+
+        let shortMapper = DurationMapper(settings: fourHour)
+        let longMapper = DurationMapper(settings: twentyFourHour)
+
+        // 5m, 15m, and 1h live at the same absolute distance no matter the
+        // maximum-duration setting; raising the maximum only adds travel at
+        // the far end.
+        for distance in stride(from: 0.0, through: 700, by: 10) {
+            XCTAssertEqual(
+                shortMapper.duration(forDistance: distance),
+                longMapper.duration(forDistance: distance),
+                "Distance \(distance)pt should select the same value on both rulers"
+            )
+        }
     }
 
     func testLiveValueQuantizesToNearestLadderRung() {
@@ -136,7 +158,7 @@ final class DragPhysicsTests: XCTestCase {
         let mapper = DurationMapper(settings: settings)
 
         let rungs = DurationLadder.rungs(for: settings)
-        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
 
         // Between rungs the readout holds the nearest rung instead of
         // interpolating through every in-between value.
@@ -160,9 +182,10 @@ final class DragPhysicsTests: XCTestCase {
             var physics = DragPhysics(settings: settings)
             let rungs = Set(DurationLadder.rungs(for: settings.sanitized))
 
+            let rulerLength = DragPhysicsSettings.pointsPerRung * Double(rungs.count - 1)
             physics.begin(at: 1)
             var timestamp = 1.0
-            for distance in stride(from: 0.0, through: settings.referenceDistance, by: 3.7) {
+            for distance in stride(from: 0.0, through: rulerLength + 60, by: 3.7) {
                 timestamp += 1.0 / 120.0
                 _ = physics.updateDrag(distance: distance, timestamp: timestamp)
                 XCTAssertTrue(
@@ -180,7 +203,7 @@ final class DragPhysicsTests: XCTestCase {
         var physics = DragPhysics(settings: settings)
 
         let rungs = DurationLadder.rungs(for: settings)
-        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
 
         physics.begin(at: 1)
         XCTAssertEqual(physics.rawRungPosition, 0)
@@ -195,8 +218,7 @@ final class DragPhysicsTests: XCTestCase {
         settings.reduceMotion = true
         var physics = DragPhysics(settings: settings)
 
-        let rungs = DurationLadder.rungs(for: settings)
-        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+        let pixelsPerRung = DragPhysicsSettings.pointsPerRung
         let fiveMinuteDistance = pixelsPerRung * 4
         let toleranceRungs = SnapGrid.tolerance(settings: settings)
         let justOutside = fiveMinuteDistance + (toleranceRungs + 0.02) * pixelsPerRung

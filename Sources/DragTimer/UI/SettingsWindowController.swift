@@ -875,11 +875,11 @@ private struct FeelSettingsView: View {
                         in: AppSettings.maximumDragDurationHoursRange
                     )
                 }
-                Section("Drag curve") {
-                    slider("Reference drag", value: physicsBinding(\.referenceDistance), range: 240...1_100)
-                    slider("Fine control", value: physicsBinding(\.gamma), range: 0.65...1.8)
+                Section("Drag feel") {
                     slider("Inertia", value: physicsBinding(\.inertiaStrength), range: 0...0.8)
                     slider("Spring", value: physicsBinding(\.springStiffness), range: 80...260)
+                    Text("The drag ruler itself is fixed: every step costs the same distance, so 5m, 15m, and 1h always live at the same spot.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Tactile feedback") {
                     Toggle("Snap to useful intervals", isOn: Binding(

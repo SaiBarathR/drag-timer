@@ -31,11 +31,12 @@ final class MaximumDragDurationTests: XCTestCase {
 
     func testDragMappingAndSnapGridReachTwentyFourHours() {
         var physics = DragPhysicsSettings()
-        physics.referenceDistance = 600
         physics.maximumDuration = 24 * 3_600
         let mapper = DurationMapper(settings: physics)
+        let fullLength = DragPhysicsSettings.pointsPerRung
+            * Double(DurationLadder.rungs(for: physics).count - 1)
 
-        XCTAssertEqual(mapper.duration(forDistance: 600), 24 * 3_600, accuracy: 0.001)
+        XCTAssertEqual(mapper.duration(forDistance: fullLength), 24 * 3_600, accuracy: 0.001)
         XCTAssertEqual(SnapGrid.nearest(to: 24 * 3_600, settings: physics), 24 * 3_600)
     }
 

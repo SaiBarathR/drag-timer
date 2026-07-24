@@ -24,10 +24,14 @@ struct DragPhysicsSettings: Codable, Equatable {
     /// on launch when this marker is missing or older.
     static let currentMappingVersion = 2
 
+    /// Fixed ruler scale: one ladder rung always costs this much travel.
+    /// Distances are absolute and memorable — 5m, 15m, and 1h live at the same
+    /// pixel distance regardless of preset or the maximum-duration setting.
+    /// Presets vary feel (inertia, spring), never geometry.
+    static let pointsPerRung: Double = 20
+
     var minimumDuration: TimeInterval = 60
     var maximumDuration: TimeInterval = 4 * 60 * 60
-    var referenceDistance: Double = 560
-    var gamma: Double = 1.0
     var inertiaStrength: Double = 0.075
     var springStiffness: Double = 190
     var springDamping: Double = 20
@@ -41,20 +45,14 @@ struct DragPhysicsSettings: Codable, Equatable {
 
         switch preset {
         case .precise:
-            settings.referenceDistance = 580
-            settings.gamma = 1.2
             settings.inertiaStrength = 0.025
             settings.springStiffness = 210
             settings.springDamping = 29
         case .snappy:
-            settings.referenceDistance = 560
-            settings.gamma = 1.0
             settings.inertiaStrength = 0.075
             settings.springStiffness = 190
             settings.springDamping = 20
         case .throwable:
-            settings.referenceDistance = 620
-            settings.gamma = 0.85
             settings.inertiaStrength = 0.17
             settings.springStiffness = 135
             settings.springDamping = 15
@@ -80,8 +78,6 @@ struct DragPhysicsSettings: Codable, Equatable {
             copy.minimumDuration + DragDurationGrid.step,
             (maximumDuration / DragDurationGrid.step).rounded(.down) * DragDurationGrid.step
         )
-        copy.referenceDistance = max(80, referenceDistance)
-        copy.gamma = max(0.5, gamma)
         copy.inertiaStrength = max(0, inertiaStrength)
         copy.springStiffness = max(1, springStiffness)
         copy.springDamping = max(0, springDamping)
@@ -159,16 +155,15 @@ struct DurationMapper {
         self.rungs = DurationLadder.rungs(for: settings)
     }
 
-    /// Continuous position along the rung array (0...rungs.count-1). Distance
-    /// maps to uniform progress along the ladder, so every scrub step costs the
-    /// same pixel travel whether the step is worth one minute or thirty.
-    /// `gamma` biases travel toward the low end (>1) or high end (<1).
+    /// Continuous position along the rung array (0...rungs.count-1). The scale
+    /// is the fixed `DragPhysicsSettings.pointsPerRung`, so every scrub step
+    /// costs the same absolute travel whether it is worth one minute or
+    /// thirty, and raising the maximum duration only adds travel at the far
+    /// end — existing values never move.
     func rungPosition(forDistance distance: Double) -> Double {
         guard rungs.count > 1 else { return 0 }
-        let clampedDistance = max(0, min(distance, settings.referenceDistance))
-        let normalized = clampedDistance / settings.referenceDistance
-        let shaped = pow(normalized, settings.gamma)
-        return shaped * Double(rungs.count - 1)
+        let position = distance / DragPhysicsSettings.pointsPerRung
+        return min(max(position, 0), Double(rungs.count - 1))
     }
 
     /// Interpolated duration between rungs. Snap-zone geometry needs this
@@ -231,6 +226,26 @@ enum SnapGrid {
 
     static func rungDistance(from duration: TimeInterval, to point: TimeInterval) -> Double {
         abs(DurationLadder.position(for: point) - DurationLadder.position(for: duration))
+    }
+}
+
+/// Ruler geometry the overlay shares with the drag mapping, so the ticks the
+/// user sees sit exactly where the detents they feel live: one minor tick per
+/// ladder rung, taller major ticks at snap points.
+struct DragRulerLayout {
+    /// Dead zone before the first rung, matching the drag activation distance.
+    let leadingOffset: Double
+    let tickSpacing: Double
+    let tickCount: Int
+    /// Rung indices whose value is a snap point (5m, 15m, 30m, 1h, …).
+    let majorTickIndices: Set<Int>
+
+    init(settings: DragPhysicsSettings, activationDistance: Double) {
+        let rungs = DurationLadder.rungs(for: settings.sanitized)
+        leadingOffset = activationDistance
+        tickSpacing = DragPhysicsSettings.pointsPerRung
+        tickCount = rungs.count
+        majorTickIndices = Set(rungs.indices.filter { SnapGrid.points.contains(rungs[$0]) })
     }
 }
 

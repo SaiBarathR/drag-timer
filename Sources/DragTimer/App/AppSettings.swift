@@ -158,13 +158,11 @@ final class AppSettings: ObservableObject {
             restoredPhysics.snapTolerance = 24
         }
         if restoredPhysics.mappingVersion != DragPhysicsSettings.currentMappingVersion {
-            // The mapper now scrubs the detent ladder uniformly, so curve
-            // parameters tuned against the old exponential mapping would feel
-            // wrong. Re-derive them from the chosen preset; for custom curves
-            // keep everything except gamma, whose scale changed.
-            if restoredPreset == .custom {
-                restoredPhysics.gamma = 1.0
-            } else {
+            // The mapper now scrubs the detent ladder on a fixed ruler scale,
+            // so feel parameters tuned against the old exponential mapping
+            // would feel wrong. Re-derive them from the chosen preset; custom
+            // settings keep their feel parameters since geometry is fixed.
+            if restoredPreset != .custom {
                 restoredPhysics = .forPreset(restoredPreset, basedOn: restoredPhysics)
             }
             restoredPhysics.mappingVersion = DragPhysicsSettings.currentMappingVersion

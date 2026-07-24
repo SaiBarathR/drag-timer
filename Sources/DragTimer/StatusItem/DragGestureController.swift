@@ -54,6 +54,10 @@ final class DragGestureController {
         lastDetentIndex = nil
 
         let overlay = DragOverlayWindowController(
+            rulerLayout: DragRulerLayout(
+                settings: physicsSettings,
+                activationDistance: Self.activationDistance
+            ),
             countdownScale: settings.countdownScale,
             highContrast: TimerAppearancePolicy.highContrast(settings: settings)
         )
