@@ -4,9 +4,9 @@
 
 # Drag Timer
 
-Drag Timer is a native macOS menu-bar timer built around a single gesture: pull time out of the menu-bar icon, release it, and the timer starts. Distance chooses a whole-minute duration, a moving release adds momentum, and useful intervals snap into place with trackpad feedback.
+Drag Timer is a native macOS menu-bar timer built around a single gesture: pull time out of the menu-bar icon, release it, and the timer starts. Distance steps through a fixed ladder of useful durations, snap points align with trackpad feedback, and the optional Throwable feel adds release momentum.
 
-It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime is verified. The bundle also contains a native `x86_64` slice, but physical Intel runtime testing was unavailable for v1.3.1, so Intel support remains provisional rather than verified. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
+It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime is verified. The bundle also contains a native `x86_64` slice, but physical Intel runtime testing remains unavailable, so Intel support is provisional rather than verified. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
 
 ## What it does
 
@@ -21,7 +21,9 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Receive a macOS notification with sound when a timer finishes.
 - Set defaults for every new timer in Preferences.
 - Raise the maximum drag-created timer from 4 hours up to 24 hours in Preferences.
-- Snap to useful durations and feel a haptic tick when crossing a snap point, with lighter detent ticks as the duration scrubs in between.
+- Scrub a fixed duration ruler with aligned visual and haptic detents, plus stronger feedback at useful snap points.
+- Use deterministic Precise or Snappy release behavior, or opt into momentum with the Throwable feel.
+- Drag naturally across built-in and external displays, including mixed Retina and non-Retina setups.
 - Keep timers correct across sleep, wake, and relaunch by storing absolute fire dates.
 - Review 30-day local history and lightweight completion insights, then start any historical timer again.
 - Check GitHub Releases quietly and open a newer release for manual installation; Drag Timer never self-updates.
@@ -30,7 +32,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 
 ## Install a release
 
-Releases include `Drag-Timer-<version>-macos-universal.zip` and `SHA256SUMS.txt`. Each app contains native `arm64` and `x86_64` executable slices. Apple Silicon is the verified v1.3.1 release audience; the Intel slice is included for provisional use because no physical Intel test Mac was available.
+Releases include `Drag-Timer-<version>-macos-universal.zip` and `SHA256SUMS.txt`. Each app contains native `arm64` and `x86_64` executable slices. Apple Silicon is the verified release audience; the Intel slice is included for provisional use because no physical Intel test Mac was available.
 
 1. Download the ZIP and `SHA256SUMS.txt` from the [Releases](https://github.com/SaiBarathR/drag-timer/releases) page.
 2. Verify the checksum, then unzip the archive and move `Drag Timer.app` to Applications.
@@ -49,7 +51,8 @@ shasum -a 256 -c SHA256SUMS.txt
 ### Create and manage timers
 
 - Click the menu-bar icon to open the timer list. Clicking anywhere outside the popover closes it.
-- Press and drag away from the icon. The floating label steps through whole minutes and shows the exact trigger time in real time. If you pause before releasing, the stable preview is the duration that starts.
+- Press and drag away from the icon. The floating label moves through a fixed ladder—every minute to 15 minutes, every 5 minutes to 1 hour, every 15 minutes to 4 hours, then every 30 minutes—and shows the exact trigger time in real time.
+- Precise and Snappy start exactly the duration shown at release. Throwable adds momentum while the pointer is moving, then smoothly settles back to the stable preview when you pause.
 - Release to name and start the timer; this prompt can be disabled in Preferences. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
 - Open the `…` menu beside a timer to pin it to the menu bar or edit its label, identity, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
@@ -76,7 +79,7 @@ Presets can be added, edited, duplicated, deleted, and reordered. Each preset ke
 
 Routines can also be added, edited, duplicated, deleted, and reordered. Add a custom five-minute timer or copy any Quick start preset into a routine, then edit and reorder its independent timer snapshots. Changing a preset later does not change the copied routine timer, and changing a routine does not affect timers that are already running.
 
-Menu bar selects the deadline, count, pinned, or ring presentation. Appearance controls countdown scale, contrast, and the urgent threshold. Feel retains the maximum drag duration (4–24 hours), curve, snap, and haptic controls. Updates can run a manual check or disable the once-daily automatic check. System beep follows your Mac’s alert volume; Glass uses Drag Timer’s volume setting.
+Menu bar selects the deadline, count, pinned, or ring presentation. Appearance controls countdown scale, contrast, and the urgent threshold. Feel controls the maximum drag duration (4–24 hours), release behavior, spring, snapping, and haptics; the ruler geometry stays fixed so familiar durations remain at the same physical distance. Updates can run a manual check or disable the once-daily automatic check. System beep follows your Mac’s alert volume; Glass uses Drag Timer’s volume setting.
 
 ## Build from source
 

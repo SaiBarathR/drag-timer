@@ -67,17 +67,17 @@ Optional, later: modifier-key variants (e.g. a key + drag for a different timer 
 
 ## 4. Physics model (carried from the design, tuned for native)
 
-### 4.1 Distance → duration (uniform detent-ladder scrub)
+### 4.1 Distance → duration (fixed detent-ladder ruler)
 
 ```
-n = clamp(distance / D_ref, 0, 1)
-p = (n ^ γ) * (rungCount - 1)                   // fractional ladder position
-T(n) = lerp(rung[floor(p)], rung[floor(p) + 1]) // seconds
+p = clamp((distance - activationDistance) / 20pt, 0, rungCount - 1)
+T(p) = rung[round(p)]
 ```
 - The ladder is the sequence of "nice" durations: every minute to 15 min, every 5 min to 1 h, every 15 min to 4 h, then every 30 min.
-- Equal pixel travel always covers equal ladder progress, so a minute step early in the drag costs the same hand movement as a 15-minute step late in it — this uniform cadence (and the haptic detents that ride the same ladder) is what makes the scrub feel mechanical rather than slippery.
-- `D_ref` = reference drag length (e.g. 50% of screen height) — the "length" knob.
-- `γ` biases travel toward the low end (>1) or high end (<1) — the "feel" knob.
+- Every rung costs 20 points of pointer travel. Increasing the maximum duration adds rungs at the far end without moving familiar values such as 5 min, 15 min, or 1 h.
+- The live readout is quantized to the nearest rung. Snap calculations retain a continuous position so snap zones stay stable.
+- Visual ruler ticks and haptic detents use the same geometry, which makes the scrub feel mechanical rather than slippery.
+- Precise and Snappy vary spring behavior but carry no release momentum; Throwable is the explicit momentum-enabled feel.
 - (v1 used a pure exponential `T_min * (T_max / T_min) ^ (n ^ γ)`; it spent half the drag below 5 minutes and raced through 30 min → 4 h in the last ~140 px, which felt dead early and twitchy late.)
 
 ### 4.2 Velocity → inertia (the "throw")
