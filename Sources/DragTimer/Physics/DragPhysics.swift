@@ -19,16 +19,22 @@ enum FeelPreset: String, Codable, CaseIterable, Identifiable {
 }
 
 struct DragPhysicsSettings: Codable, Equatable {
+    /// Version 2 scrubs uniformly through the detent ladder. Stored curve
+    /// parameters tuned against the old exponential mapping are re-derived
+    /// on launch when this marker is missing or older.
+    static let currentMappingVersion = 2
+
     var minimumDuration: TimeInterval = 60
     var maximumDuration: TimeInterval = 4 * 60 * 60
     var referenceDistance: Double = 560
-    var gamma: Double = 1.68
+    var gamma: Double = 1.0
     var inertiaStrength: Double = 0.075
     var springStiffness: Double = 190
     var springDamping: Double = 20
     var snappingEnabled: Bool = true
     var snapTolerance: TimeInterval = 24
     var reduceMotion: Bool = false
+    var mappingVersion: Int? = DragPhysicsSettings.currentMappingVersion
 
     static func forPreset(_ preset: FeelPreset, basedOn current: DragPhysicsSettings = DragPhysicsSettings()) -> DragPhysicsSettings {
         var settings = current
@@ -36,19 +42,19 @@ struct DragPhysicsSettings: Codable, Equatable {
         switch preset {
         case .precise:
             settings.referenceDistance = 580
-            settings.gamma = 1.92
+            settings.gamma = 1.2
             settings.inertiaStrength = 0.025
             settings.springStiffness = 210
             settings.springDamping = 29
         case .snappy:
             settings.referenceDistance = 560
-            settings.gamma = 1.68
+            settings.gamma = 1.0
             settings.inertiaStrength = 0.075
             settings.springStiffness = 190
             settings.springDamping = 20
         case .throwable:
             settings.referenceDistance = 620
-            settings.gamma = 1.48
+            settings.gamma = 0.85
             settings.inertiaStrength = 0.17
             settings.springStiffness = 135
             settings.springDamping = 15
@@ -59,6 +65,7 @@ struct DragPhysicsSettings: Codable, Equatable {
         // The original 12-second window was only a few pixels wide around the
         // low-minute snaps, so most drags never entered a haptic snap zone.
         settings.snapTolerance = 24
+        settings.mappingVersion = currentMappingVersion
 
         return settings.sanitized
     }
@@ -92,15 +99,78 @@ enum DragDurationGrid {
     }
 }
 
+/// The ladder of durations a drag scrubs through: every minute to 15 minutes,
+/// every 5 minutes to an hour, every 15 minutes to 4 hours, then every
+/// 30 minutes. Both the duration mapping and the haptic detents derive from
+/// this ladder so what the hand feels matches how the value moves.
+enum DurationLadder {
+    static let bands: [(upperBound: TimeInterval, step: TimeInterval)] = [
+        (15 * 60, 60),
+        (60 * 60, 5 * 60),
+        (4 * 60 * 60, 15 * 60),
+        (.greatestFiniteMagnitude, 30 * 60)
+    ]
+
+    static func step(at duration: TimeInterval) -> TimeInterval {
+        for band in bands where duration < band.upperBound {
+            return band.step
+        }
+        return bands[bands.count - 1].step
+    }
+
+    static func rungs(for settings: DragPhysicsSettings) -> [TimeInterval] {
+        var rungs: [TimeInterval] = [settings.minimumDuration]
+        var current = settings.minimumDuration
+        while current < settings.maximumDuration {
+            current = min(current + step(at: current), settings.maximumDuration)
+            rungs.append(current)
+        }
+        return rungs
+    }
+
+    /// Fractional rung position of a duration, counted from zero. One unit is
+    /// one rung, so differences in this space correspond to uniform pixel
+    /// travel under the drag mapping.
+    static func position(for duration: TimeInterval) -> Double {
+        var position = 0.0
+        var lowerBound: TimeInterval = 0
+        for band in bands {
+            let cappedUpper = min(duration, band.upperBound)
+            if cappedUpper > lowerBound {
+                position += (cappedUpper - lowerBound) / band.step
+            }
+            if duration <= band.upperBound { break }
+            lowerBound = band.upperBound
+        }
+        return position
+    }
+
+    static func index(for duration: TimeInterval) -> Int {
+        Int(position(for: duration))
+    }
+}
+
 struct DurationMapper {
     let settings: DragPhysicsSettings
+    private let rungs: [TimeInterval]
 
+    init(settings: DragPhysicsSettings) {
+        self.settings = settings
+        self.rungs = DurationLadder.rungs(for: settings)
+    }
+
+    /// Distance maps to uniform progress along the rung ladder, so every scrub
+    /// step costs the same pixel travel whether the step is worth one minute or
+    /// thirty. `gamma` biases travel toward the low end (>1) or high end (<1).
     func duration(forDistance distance: Double) -> TimeInterval {
+        guard rungs.count > 1 else { return settings.minimumDuration }
         let clampedDistance = max(0, min(distance, settings.referenceDistance))
         let normalized = clampedDistance / settings.referenceDistance
         let shaped = pow(normalized, settings.gamma)
-        let ratio = settings.maximumDuration / settings.minimumDuration
-        return settings.minimumDuration * pow(ratio, shaped)
+        let position = shaped * Double(rungs.count - 1)
+        let lowerIndex = min(Int(position), rungs.count - 2)
+        let fraction = position - Double(lowerIndex)
+        return rungs[lowerIndex] + (rungs[lowerIndex + 1] - rungs[lowerIndex]) * fraction
     }
 }
 
@@ -126,12 +196,24 @@ enum SnapGrid {
         guard settings.snappingEnabled else { return nil }
 
         let eligiblePoints = points.filter { $0 >= settings.minimumDuration && $0 <= settings.maximumDuration }
-        guard let point = eligiblePoints.min(by: { abs($0 - duration) < abs($1 - duration) }) else {
+        guard let point = eligiblePoints.min(by: {
+            rungDistance(from: duration, to: $0) < rungDistance(from: duration, to: $1)
+        }) else {
             return nil
         }
 
-        let tolerance = min(max(settings.snapTolerance, point * 0.035), 120)
-        return abs(point - duration) <= tolerance ? point : nil
+        return rungDistance(from: duration, to: point) <= tolerance(settings: settings) ? point : nil
+    }
+
+    /// Snap zones are measured in ladder rungs rather than seconds, so a zone
+    /// spans the same pixel width at 2 hours as it does at 5 minutes. The
+    /// user's tolerance setting is expressed in seconds at the 1-minute rung.
+    static func tolerance(settings: DragPhysicsSettings) -> Double {
+        max(1, settings.snapTolerance) / DragDurationGrid.step
+    }
+
+    static func rungDistance(from duration: TimeInterval, to point: TimeInterval) -> Double {
+        abs(DurationLadder.position(for: point) - DurationLadder.position(for: duration))
     }
 }
 
@@ -204,11 +286,14 @@ struct DragPhysics {
         if let lastTimestamp {
             let elapsed = timestamp - lastTimestamp
             let distanceDelta = newDistance - lastDistance
-            if abs(distanceDelta) < 0.5 {
-                velocity = 0
-            } else if elapsed > 0.001 && elapsed <= Self.maximumVelocitySampleInterval {
+            if elapsed > 0.001 && elapsed <= Self.maximumVelocitySampleInterval {
+                // Time-corrected blend: the same smoothing whether events
+                // arrive at 60 Hz or 120 Hz. Sub-pixel deltas (common on
+                // high-refresh trackpads) decay the estimate smoothly instead
+                // of hard-zeroing an in-progress throw.
                 let instantaneousVelocity = distanceDelta / elapsed
-                velocity = (velocity * 0.68) + (instantaneousVelocity * 0.32)
+                let alpha = 1 - exp(-elapsed / 0.045)
+                velocity += (instantaneousVelocity - velocity) * alpha
             } else if elapsed > Self.maximumVelocitySampleInterval {
                 velocity = 0
             }
@@ -232,7 +317,14 @@ struct DragPhysics {
     private mutating func updateSelection(distance newDistance: Double) -> Bool {
         self.distance = newDistance
         let rawDuration = mapper.duration(forDistance: newDistance)
-        let snap = SnapGrid.nearest(to: rawDuration, settings: settings)
+        var snap = SnapGrid.nearest(to: rawDuration, settings: settings)
+        // Hysteresis: once a snap engages, hold it until the pointer moves
+        // clearly outside the zone so jitter on the boundary doesn't flicker
+        // the snap state (and its haptic/visual feedback) on and off.
+        if snap == nil, let held = activeSnap, settings.snappingEnabled,
+           SnapGrid.rungDistance(from: rawDuration, to: held) <= SnapGrid.tolerance(settings: settings) * 1.6 {
+            snap = held
+        }
         let crossedIntoSnap = snap != nil && snap != activeSnap
         activeSnap = snap
         displayDuration = DragDurationGrid.nearest(to: snap ?? rawDuration, settings: settings)

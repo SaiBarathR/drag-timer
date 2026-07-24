@@ -94,13 +94,67 @@ final class DragPhysicsTests: XCTestCase {
 
         physics.begin(at: 1)
         _ = physics.updateDrag(distance: 114, timestamp: 1.1)
-        XCTAssertEqual(physics.displayDuration, 60)
+        XCTAssertEqual(physics.displayDuration, 8 * 60)
 
-        _ = physics.updateReleaseDistance(119)
-        XCTAssertEqual(physics.displayDuration, 120)
+        _ = physics.updateReleaseDistance(122)
+        XCTAssertEqual(physics.displayDuration, 9 * 60)
 
         let release = physics.release(at: 1.4)
-        XCTAssertEqual(release.duration, 120)
+        XCTAssertEqual(release.duration, 9 * 60)
+    }
+
+    func testMappingScrubsDetentLadderUniformly() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.snappingEnabled = false
+        let mapper = DurationMapper(settings: settings)
+
+        let rungs = DurationLadder.rungs(for: settings)
+        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+
+        // Every rung of the ladder costs the same pixel travel, whether the
+        // step is worth one minute (early) or fifteen (late).
+        for (index, rung) in rungs.enumerated() {
+            XCTAssertEqual(
+                mapper.duration(forDistance: pixelsPerRung * Double(index)),
+                rung,
+                accuracy: 0.001,
+                "Rung \(index) should sit exactly \(index) uniform steps into the drag"
+            )
+        }
+
+        XCTAssertEqual(mapper.duration(forDistance: 0), settings.minimumDuration)
+        XCTAssertEqual(
+            mapper.duration(forDistance: settings.referenceDistance),
+            settings.maximumDuration,
+            accuracy: 0.001
+        )
+    }
+
+    func testSnapHoldsWithHysteresisUntilClearlyOutsideTheZone() {
+        var settings = DragPhysicsSettings.forPreset(.snappy)
+        settings.reduceMotion = true
+        var physics = DragPhysics(settings: settings)
+
+        let rungs = DurationLadder.rungs(for: settings)
+        let pixelsPerRung = settings.referenceDistance / Double(rungs.count - 1)
+        let fiveMinuteDistance = pixelsPerRung * 4
+        let toleranceRungs = SnapGrid.tolerance(settings: settings)
+        let justOutside = fiveMinuteDistance + (toleranceRungs + 0.02) * pixelsPerRung
+        let clearlyOutside = fiveMinuteDistance + (toleranceRungs * 1.6 + 0.05) * pixelsPerRung
+
+        physics.begin(at: 1)
+        _ = physics.updateDrag(distance: fiveMinuteDistance, timestamp: 1.1)
+        XCTAssertTrue(physics.isSnapped)
+        XCTAssertEqual(physics.displayDuration, 5 * 60)
+
+        // Drifting just past the engage tolerance keeps the snap held...
+        _ = physics.updateDrag(distance: justOutside, timestamp: 1.2)
+        XCTAssertTrue(physics.isSnapped)
+        XCTAssertEqual(physics.displayDuration, 5 * 60)
+
+        // ...and only a clear exit releases it.
+        _ = physics.updateDrag(distance: clearlyOutside, timestamp: 1.3)
+        XCTAssertFalse(physics.isSnapped)
     }
 
     func testDurationRangeSanitizationKeepsWholeMinuteNonDegenerateBounds() {

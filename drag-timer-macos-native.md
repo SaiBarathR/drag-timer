@@ -67,15 +67,18 @@ Optional, later: modifier-key variants (e.g. a key + drag for a different timer 
 
 ## 4. Physics model (carried from the design, tuned for native)
 
-### 4.1 Distance → duration (exponential, for minute-to-hour control)
+### 4.1 Distance → duration (uniform detent-ladder scrub)
 
 ```
 n = clamp(distance / D_ref, 0, 1)
-T(n) = T_min * (T_max / T_min) ^ (n ^ γ)        // seconds
+p = (n ^ γ) * (rungCount - 1)                   // fractional ladder position
+T(n) = lerp(rung[floor(p)], rung[floor(p) + 1]) // seconds
 ```
+- The ladder is the sequence of "nice" durations: every minute to 15 min, every 5 min to 1 h, every 15 min to 4 h, then every 30 min.
+- Equal pixel travel always covers equal ladder progress, so a minute step early in the drag costs the same hand movement as a 15-minute step late in it — this uniform cadence (and the haptic detents that ride the same ladder) is what makes the scrub feel mechanical rather than slippery.
 - `D_ref` = reference drag length (e.g. 50% of screen height) — the "length" knob.
-- `γ` > 1 packs fine resolution into the start of the drag — the "feel" knob.
-- Exponential mapping is what makes a short drag read as minutes and a long drag as hours, with even relative precision throughout.
+- `γ` biases travel toward the low end (>1) or high end (<1) — the "feel" knob.
+- (v1 used a pure exponential `T_min * (T_max / T_min) ^ (n ^ γ)`; it spent half the drag below 5 minutes and raced through 30 min → 4 h in the last ~140 px, which felt dead early and twitchy late.)
 
 ### 4.2 Velocity → inertia (the "throw")
 

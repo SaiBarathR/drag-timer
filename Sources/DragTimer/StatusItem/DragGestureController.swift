@@ -256,29 +256,12 @@ final class DragGestureController {
         lastDetentIndex = detent
     }
 
-    /// Maps a duration onto a monotonic ladder of "nice" steps — every minute
-    /// to 15 minutes, every 5 minutes to an
-    /// hour, every 15 minutes to 4 hours, then every 30 minutes. Crossing a
-    /// rung means the user scrubbed past a value worth feeling.
+    /// Crossing a rung of the shared duration ladder means the user scrubbed
+    /// past a value worth feeling. Because the drag mapping scrubs that same
+    /// ladder uniformly, ticks arrive at an even pixel cadence across the
+    /// whole drag instead of machine-gunning near the far end.
     private static func detentIndex(for duration: TimeInterval) -> Int {
-        let bands: [(upperBound: TimeInterval, step: TimeInterval)] = [
-            (15 * 60, 60),
-            (60 * 60, 5 * 60),
-            (4 * 60 * 60, 15 * 60),
-            (.greatestFiniteMagnitude, 30 * 60)
-        ]
-
-        var index = 0
-        var lowerBound: TimeInterval = 0
-        for band in bands {
-            let cappedUpper = min(duration, band.upperBound)
-            if cappedUpper > lowerBound {
-                index += Int((cappedUpper - lowerBound) / band.step)
-            }
-            if duration <= band.upperBound { break }
-            lowerBound = band.upperBound
-        }
-        return index
+        DurationLadder.index(for: duration)
     }
 
     private func performHaptic(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {

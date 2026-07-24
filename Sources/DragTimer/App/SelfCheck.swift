@@ -129,13 +129,13 @@ enum SelfCheck {
 
         physics.begin(at: 1)
         _ = physics.updateDrag(distance: 114, timestamp: 1.1)
-        try require(physics.displayDuration == 60, "last dragged sample starts at one minute")
+        try require(physics.displayDuration == 8 * 60, "last dragged sample selects eight minutes")
 
-        _ = physics.updateReleaseDistance(119)
-        try require(physics.displayDuration == 120, "mouse-up distance reaches the next minute")
+        _ = physics.updateReleaseDistance(122)
+        try require(physics.displayDuration == 9 * 60, "mouse-up distance reaches the next minute")
 
         let release = physics.release(at: 1.4)
-        try require(release.duration == 120, "stale velocity does not project past mouse-up selection")
+        try require(release.duration == 9 * 60, "stale velocity does not project past mouse-up selection")
     }
 
     private static func verifyDeadlineHeap() throws {
