@@ -13,6 +13,7 @@ final class StatusItemController: NSObject {
     private var settingsCancellable: AnyCancellable?
     private var countdownTicker: Timer?
     private var isPopoverVisible = false
+    private var inputDiagnosticsMonitor: Any?
 
     init(
         timerEngine: TimerEngine,
@@ -41,6 +42,7 @@ final class StatusItemController: NSObject {
     }
 
     deinit {
+        if let inputDiagnosticsMonitor { NSEvent.removeMonitor(inputDiagnosticsMonitor) }
         countdownTicker?.invalidate()
         NSStatusBar.system.removeStatusItem(statusItem)
     }
@@ -90,6 +92,9 @@ final class StatusItemController: NSObject {
         view.onEnd = { [weak self] pointer, timestamp in
             self?.gestureController.end(pointer: pointer, timestamp: timestamp)
         }
+        view.onCancel = { [weak self] in
+            self?.gestureController.cancel()
+        }
         view.onClick = { [weak self] in
             self?.showPopover()
         }
@@ -98,11 +103,23 @@ final class StatusItemController: NSObject {
             self?.showPopover()
         }
 
-        // NSStatusItem's custom-view API is deprecated in favor of a button,
-        // but remains the AppKit path that gives this interaction ownership of
-        // the entire mouse-tracking sequence instead of a button action.
+        // Keep the custom drawing and geometry; gesture recognizers own input
+        // so AppKit can dispatch drags without a nested event-tracking loop.
         statusItem.view = view
         statusView = view
+        if CommandLine.arguments.contains("--input-diagnostics") {
+            inputDiagnosticsMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+            ) { [weak view] event in
+                if event.window === view?.window {
+                    NSLog("INPUT local type=%ld point=%@ hardware=%@ buttons=%lu", event.type.rawValue,
+                          NSStringFromPoint(event.locationInWindow), NSStringFromPoint(NSEvent.mouseLocation), NSEvent.pressedMouseButtons)
+                }
+                return event
+            }
+            NSLog("INPUT host=%@ frame=%@ super=%@", String(describing: view.window),
+                  NSStringFromRect(view.frame), String(describing: view.superview))
+        }
     }
 
     private func observeTimerChanges() {
@@ -212,15 +229,48 @@ final class StatusItemController: NSObject {
     }
 }
 
-/// A small, self-drawn menu-bar control. Its local tracking loop is deliberate:
-/// once it receives mouse-down, AppKit continues feeding it drag/up events even
-/// after the pointer has left the status item's bounds.
-private final class StatusItemCaptureView: NSView {
+/// Gesture recognition keeps tracking outside the icon without stealing events
+/// from AppKit's modern input dispatch (including macOS 27).
+private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
     var onBegin: ((CGPoint, CGPoint, TimeInterval) -> Void)?
     var onDrag: ((CGPoint, TimeInterval) -> Void)?
     var onEnd: ((CGPoint, TimeInterval) -> Void)?
+    var onCancel: (() -> Void)?
     var onClick: (() -> Void)?
     var onSecondaryClick: (() -> Void)?
+
+    private lazy var panRecognizer = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+    private lazy var clickRecognizer = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
+    private var pointerSession: StatusItemPointerSession?
+    private var pointerTicker: Timer?
+
+    deinit { pointerTicker?.invalidate() }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        panRecognizer.buttonMask = 0x1
+        panRecognizer.delaysPrimaryMouseButtonEvents = true
+        clickRecognizer.buttonMask = 0x1
+        clickRecognizer.delegate = self
+        addGestureRecognizer(panRecognizer)
+        addGestureRecognizer(clickRecognizer)
+        let secondaryClick = NSClickGestureRecognizer(target: self, action: #selector(handleSecondaryClick(_:)))
+        secondaryClick.buttonMask = 0x2
+        addGestureRecognizer(secondaryClick)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: NSGestureRecognizer,
+        shouldRequireFailureOf otherGestureRecognizer: NSGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === clickRecognizer && otherGestureRecognizer === panRecognizer
+    }
 
     private var isTracking = false {
         didSet { needsDisplay = true }
@@ -375,56 +425,88 @@ private final class StatusItemCaptureView: NSView {
         }
     }
 
-    override func mouseDown(with event: NSEvent) {
-        let origin = screenCenter
-        var didBeginDrag = false
-        isTracking = true
+    @objc private func handlePan(_ recognizer: NSPanGestureRecognizer) {
+        guard pointerSession == nil else { return }
+        let windowPoint = recognizer.location(in: nil)
+        let pointer = window?.convertPoint(toScreen: windowPoint) ?? NSEvent.mouseLocation
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        if CommandLine.arguments.contains("--input-diagnostics") {
+            NSLog("INPUT pan state=%ld pointer=%@ origin=%@", recognizer.state.rawValue,
+                  NSStringFromPoint(pointer), NSStringFromPoint(screenCenter))
+        }
+        switch recognizer.state {
+        case .began:
+            isTracking = true
+            onBegin?(screenCenter, pointer, timestamp)
+        case .changed:
+            onDrag?(pointer, timestamp)
+        case .ended:
+            isTracking = false
+            onEnd?(pointer, timestamp)
+        case .cancelled, .failed:
+            isTracking = false
+            onCancel?()
+        default:
+            break
+        }
+    }
 
-        defer { isTracking = false }
-
-        while true {
-            guard let nextEvent = NSApp.nextEvent(
-                matching: [.leftMouseDragged, .leftMouseUp],
-                until: .distantFuture,
-                inMode: .eventTracking,
-                dequeue: true
-            ) else {
-                continue
+    @objc private func handleClick(_ recognizer: NSClickGestureRecognizer) {
+        if CommandLine.arguments.contains("--input-diagnostics") {
+            NSLog("INPUT click state=%ld buttons=%lu", recognizer.state.rawValue, NSEvent.pressedMouseButtons)
+        }
+        guard recognizer.state == .ended else { return }
+        guard pointerSession == nil else { return }
+        if NSEvent.pressedMouseButtons & 1 != 0 {
+            // macOS 27 can forward a complete click before physical release,
+            // with no subsequent drag events. Observe only this initiated
+            // press; no global event tap or Accessibility permission is needed.
+            pointerSession = StatusItemPointerSession(origin: NSEvent.mouseLocation)
+            isTracking = true
+            let ticker = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
+                self?.samplePhysicalPointer()
             }
+            pointerTicker = ticker
+            RunLoop.main.add(ticker, forMode: .common)
+            RunLoop.main.add(ticker, forMode: .eventTracking)
+        } else {
+            onClick?()
+        }
+    }
 
-            // Use the event's own location so it pairs with the event's
-            // timestamp. Reading NSEvent.mouseLocation here mixed the current
-            // hardware position with an older timestamp, which corrupted the
-            // velocity estimate whenever drag events queued up.
-            let pointer = pointerLocation(for: nextEvent)
-            switch nextEvent.type {
-            case .leftMouseDragged:
-                if !didBeginDrag {
-                    didBeginDrag = true
-                    onBegin?(origin, pointer, nextEvent.timestamp)
-                } else {
-                    onDrag?(pointer, nextEvent.timestamp)
-                }
-            case .leftMouseUp:
-                if didBeginDrag {
-                    onEnd?(pointer, nextEvent.timestamp)
-                } else {
-                    onClick?()
-                }
-                return
-            default:
-                break
+    private func samplePhysicalPointer() {
+        guard var session = pointerSession else { return }
+        let pointer = NSEvent.mouseLocation
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let actions = session.sample(pointer: pointer, isPressed: NSEvent.pressedMouseButtons & 1 != 0)
+        pointerSession = session
+        if session.isFinished {
+            stopPhysicalTracking()
+        }
+        for action in actions {
+            if CommandLine.arguments.contains("--input-diagnostics") {
+                if case .drag = action {} else { NSLog("INPUT physical %@", String(describing: action)) }
+            }
+            switch action {
+            case let .begin(origin, pointer): onBegin?(origin, pointer, timestamp)
+            case let .drag(pointer): onDrag?(pointer, timestamp)
+            case let .end(pointer): onEnd?(pointer, timestamp)
+            case .click: onClick?()
             }
         }
     }
 
-    override func rightMouseDown(with event: NSEvent) {
-        onSecondaryClick?()
+    private func stopPhysicalTracking() {
+        pointerTicker?.invalidate()
+        pointerTicker = nil
+        pointerSession = nil
+        isTracking = false
     }
 
-    private func pointerLocation(for event: NSEvent) -> CGPoint {
-        guard let eventWindow = event.window else { return event.locationInWindow }
-        return eventWindow.convertPoint(toScreen: event.locationInWindow)
+    @objc private func handleSecondaryClick(_ recognizer: NSClickGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        stopPhysicalTracking()
+        onSecondaryClick?()
     }
 
     private var timerIconCenter: CGPoint {

@@ -1,7 +1,7 @@
 import AppKit
 
 final class DragGestureController {
-    private static let activationDistance: CGFloat = 8
+    private static let activationDistance = StatusItemPointerSession.activationDistance
 
     private enum GestureState {
         case idle
@@ -198,9 +198,8 @@ final class DragGestureController {
 
         finish(as: .prompting)
 
-        // Leave the status item's nested mouse-tracking loop before presenting
-        // a key window. This keeps keyboard focus and the Cancel shortcut
-        // reliable after mouse-up.
+        // Finish dispatching the release gesture before presenting a key window
+        // so keyboard focus and the Cancel shortcut work reliably.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let label = TimerLabelPrompt.requestLabel(
