@@ -10,7 +10,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 
 ## What it does
 
-- Create a timer by dragging from the menu-bar clock icon.
+- Create a timer by dragging from the menu-bar clock icon. A click still opens the popover; this distinction holds on current macOS, including macOS 27.
 - Choose whether the menu bar shows the nearest deadline, active count, a pinned timer, or a progress ring.
 - Create labeled, colored, reorderable Quick start presets with their own sound and notification behavior.
 - Save named routines such as Pomodoro or Morning routine and launch all of their timers together.
