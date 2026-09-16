@@ -17,6 +17,7 @@ enum SelfCheck {
 
     static func run() -> Int32 {
         do {
+            try verifyForwardedStatusItemPress()
             try verifyDistanceMapping()
             try verifyInertiaProjection()
             try verifyStoppedReleaseMatchesPreview()
@@ -67,6 +68,32 @@ enum SelfCheck {
             SnapGrid.nearest(to: 24 * 60 * 60, settings: settings) == 24 * 60 * 60,
             "twenty-four-hour snap"
         )
+    }
+
+    private static func verifyForwardedStatusItemPress() throws {
+        let origin = CGPoint(x: 500, y: 900)
+        let away = CGPoint(x: 500, y: 750)
+        var click = StatusItemPointerSession(origin: origin)
+        try require(click.sample(pointer: origin, isPressed: true).isEmpty,
+                    "forwarded click must not open popover while button is held")
+        try require(click.sample(pointer: CGPoint(x: 502, y: 899), isPressed: true).isEmpty,
+                    "small pointer jitter is not a drag")
+        try require(click.sample(pointer: origin, isPressed: false) == [.click],
+                    "physical click opens popover only on release")
+        try require(click.sample(pointer: origin, isPressed: false).isEmpty,
+                    "release cannot be delivered twice")
+
+        var drag = StatusItemPointerSession(origin: origin)
+        try require(drag.sample(pointer: away, isPressed: true) == [.begin(origin, away)],
+                    "physical movement starts preview without any drag event")
+        try require(drag.sample(pointer: origin, isPressed: true) == [.drag(origin)],
+                    "returning to origin must not turn drag into click")
+        try require(drag.sample(pointer: away, isPressed: false) == [.end(away)],
+                    "physical drag release creates timer without opening popover")
+
+        var fast = StatusItemPointerSession(origin: origin)
+        try require(fast.sample(pointer: away, isPressed: false) == [.begin(origin, away), .end(away)],
+                    "movement first observed at release still creates timer")
     }
 
     private static func verifyInertiaProjection() throws {
