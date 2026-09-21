@@ -83,19 +83,42 @@ Menu bar selects the deadline, count, pinned, or ring presentation. Appearance c
 
 ## Build from source
 
+> **Prerequisite: full Xcode is required.**  
+> The macOS SDK bundled with the Command Line Tools alone does not include the full Swift standard-library slices. Install Xcode from the Mac App Store, launch it once to finish component setup, then run:
+> ```sh
+> sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+> sudo xcodebuild -license accept
+> ```
+
+The fastest way to get a debug build running:
+
+```sh
+make run          # build (debug) and launch Drag Timer immediately
+```
+
+Or using the underlying Swift commands directly:
+
 ```sh
 swift build
 swift run
 ```
 
-Build an app bundle:
+Build a universal release app bundle:
+
+```sh
+make build        # equivalent to ./Scripts/build-app.sh && open "dist/Drag Timer.app"
+```
+
+Or manually:
 
 ```sh
 ./Scripts/build-app.sh
 open "dist/Drag Timer.app"
 ```
 
-The script applies an **ad-hoc** code signature to the bundle — required for the app to launch at all on Apple Silicon — but it is not signed with a Developer ID or notarized for frictionless distribution.
+The `build-app.sh` script auto-detects a full Xcode installation and fails with a clear message if none is found. It applies an **ad-hoc** code signature to the bundle — required for the app to launch at all on Apple Silicon — but it is not signed with a Developer ID or notarized for frictionless distribution.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide including project layout, workflow, and good first issues.
 
 ## Verify
 
