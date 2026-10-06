@@ -25,6 +25,65 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testMarkDoneCompletesRunningTimerWithoutAlertOrExpiryCard() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 11_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let done = engine.createTimer(duration: 25 * 60, options: TimerOptions(label: "Focus"))
+        let other = engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        clock.date.addTimeInterval(10 * 60)
+
+        engine.markDone(id: done.id)
+
+        XCTAssertEqual(engine.timers.map(\.id), [other.id])
+        XCTAssertTrue(engine.pendingExpiries.isEmpty)
+        XCTAssertNil(engine.activeAlert)
+        let entry = engine.historyEntries.first { $0.sourceTimerID == done.id }
+        XCTAssertEqual(entry?.outcome, .completed)
+        XCTAssertEqual(entry?.resolution, .markDone)
+        XCTAssertEqual(entry?.plannedDuration, 25 * 60)
+        XCTAssertEqual(entry?.actualElapsed, 10 * 60)
+        XCTAssertEqual(TimerHistoryInsights.calculate(entries: engine.historyEntries).completedCount, 1)
+
+        // The finished timer must not fire at its original deadline.
+        clock.date.addTimeInterval(20 * 60)
+        engine.processExpiries()
+
+        XCTAssertEqual(engine.pendingExpiries.map(\.timer.id), [other.id])
+        XCTAssertEqual(audio.playedLabels, ["Tea"])
+        XCTAssertEqual(engine.historyEntries.filter { $0.sourceTimerID == done.id }.count, 1)
+    }
+
+    @MainActor
+    func testMarkDoneCompletesPausedTimerAndSurvivesRelaunch() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 12_000))
+        var engine: TimerEngine? = makeEngine(directory: directory, clock: clock)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let timer = engine!.createTimer(duration: 300, options: TimerOptions(label: "Paused"))
+        engine!.pause(id: timer.id)
+
+        engine!.markDone(id: timer.id)
+        engine!.markDone(id: timer.id)
+        engine = nil
+        clock.date.addTimeInterval(301)
+
+        let restored = makeEngine(directory: directory, clock: clock)
+
+        XCTAssertTrue(restored.timers.isEmpty)
+        XCTAssertTrue(restored.pendingExpiries.isEmpty)
+        XCTAssertEqual(restored.historyEntries.map(\.outcome), [.completed])
+        XCTAssertEqual(restored.historyEntries.map(\.resolution), [.markDone])
+    }
+
+    @MainActor
     func testSnoozeAndRestartCreateNewLinkedOccurrences() {
         let fixture = makeFixture()
         defer { fixture.cleanup() }

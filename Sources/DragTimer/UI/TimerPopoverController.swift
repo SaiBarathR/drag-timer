@@ -23,6 +23,7 @@ struct RoutineLaunchAction {
 enum TimerRowInlineAction: Hashable {
     case delete
     case reset
+    case done
     case pause
     case resume
 
@@ -30,6 +31,7 @@ enum TimerRowInlineAction: Hashable {
         switch self {
         case .delete: return "trash"
         case .reset: return "arrow.counterclockwise"
+        case .done: return "checkmark"
         case .pause: return "pause.fill"
         case .resume: return "play.fill"
         }
@@ -39,6 +41,7 @@ enum TimerRowInlineAction: Hashable {
         switch self {
         case .delete: return "Delete timer"
         case .reset: return "Reset timer"
+        case .done: return "Mark timer done"
         case .pause: return "Pause timer"
         case .resume: return "Resume timer"
         }
@@ -46,8 +49,9 @@ enum TimerRowInlineAction: Hashable {
 }
 
 enum TimerRowActionPolicy {
+    /// Paused rows are already full, so their Mark done stays in the `…` menu.
     static func inlineActions(isPaused: Bool) -> [TimerRowInlineAction] {
-        isPaused ? [.delete, .reset, .resume] : [.pause]
+        isPaused ? [.delete, .reset, .resume] : [.done, .pause]
     }
 }
 
@@ -401,7 +405,7 @@ private struct TimerListView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("\(expiry.timer.label) finished")
                         .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
+                        .lineLimit(2)
                     if timerEngine.pendingExpiries.count > 1 {
                         Text("1 of \(timerEngine.pendingExpiries.count)")
                             .font(.caption).foregroundStyle(.secondary)
@@ -474,6 +478,7 @@ private struct TimerListView: View {
                         },
                         onReset: { timerEngine.reset(id: timer.id) },
                         onSnooze: { timerEngine.snooze(id: timer.id) },
+                        onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
                     if timer.id != timerEngine.timers.last?.id {
@@ -615,6 +620,7 @@ private struct TimerRow: View {
     let onPauseResume: () -> Void
     let onReset: () -> Void
     let onSnooze: () -> Void
+    let onDone: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -642,7 +648,8 @@ private struct TimerRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(timer.label)
                     .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .help(timer.label)
                     .overlay(alignment: .trailing) {
                         if isPinned {
                             Image(systemName: "pin.fill")
@@ -677,6 +684,7 @@ private struct TimerRow: View {
                     Button("Reset timer", action: onReset)
                     Button("Snooze \(timer.snoozeMinutes) min", action: onSnooze)
                     Divider()
+                    Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -709,6 +717,8 @@ private struct TimerRow: View {
             onCancel()
         case .reset:
             onReset()
+        case .done:
+            onDone()
         case .pause, .resume:
             onPauseResume()
         }
@@ -758,7 +768,11 @@ private struct TimerEditorView: View {
                 .padding(.top, 22)
 
             Form {
-                TextField("Label", text: $label)
+                // Reserved rather than growing: the sheet keeps the size it
+                // was presented with, so a field that grows while typing
+                // would hide every line but the last.
+                TextField("Label", text: $label, axis: .vertical)
+                    .lineLimit(3, reservesSpace: true)
                 Picker("Sound", selection: $soundName) {
                     ForEach(AlertSound.allCases) { sound in
                         Text(sound.displayName).tag(sound.rawValue)
@@ -793,7 +807,8 @@ private struct TimerEditorView: View {
                 Spacer()
                 Button("Save changes") {
                     var updated = timer
-                    updated.label = label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Timer" : label
+                    let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updated.label = trimmedLabel.isEmpty ? "Timer" : trimmedLabel
                     updated.soundName = soundName
                     updated.volume = volume
                     updated.loop = loop

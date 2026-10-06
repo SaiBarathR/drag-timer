@@ -174,8 +174,27 @@ final class TimerEngine: ObservableObject {
     }
 
     func cancel(id: UUID) {
+        endActiveTimer(id: id, outcome: .cancelled)
+    }
+
+    /// Completes an active timer before it fires: no alert, no expiry card.
+    /// Expiry-card completion uses `markExpiryDone(id:)` instead.
+    func markDone(id: UUID) {
+        endActiveTimer(id: id, outcome: .completed, resolution: .markDone)
+    }
+
+    private func endActiveTimer(
+        id: UUID,
+        outcome: TimerHistoryOutcome,
+        resolution: ExpiryResolution? = nil
+    ) {
         guard let timer = timers.first(where: { $0.id == id }) else { return }
-        appendHistory(TimerHistoryEntry(timer: timer, endedAt: now(), outcome: .cancelled))
+        appendHistory(TimerHistoryEntry(
+            timer: timer,
+            endedAt: now(),
+            outcome: outcome,
+            resolution: resolution
+        ))
         heap.remove(id: id)
         timers.removeAll { $0.id == id }
         notificationService.remove(timerID: id)
