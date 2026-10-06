@@ -56,6 +56,15 @@ enum StatusItemGeometry {
         )
     }
 
+    /// Drawing a symbol image directly ignores the current stroke and fill
+    /// colors and comes out black, so the tint has to be part of the image.
+    static func tintedSymbol(named name: String, color: NSColor) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+                .applying(.init(paletteColors: [color]))
+        )
+    }
+
     static func measuredWidth(of text: String) -> CGFloat {
         measuredWidth(of: text, scale: .standard)
     }

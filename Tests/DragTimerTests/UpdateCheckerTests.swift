@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import DragTimer
 
@@ -95,6 +96,23 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(transport.callCount, 2)
         XCTAssertNotNil(fixture.settings.lastUpdateCheckAt)
         XCTAssertEqual(checker.availableRelease?.tagName, "v1.3.0")
+    }
+
+    func testCheckPublishesOnTheMainThreadWhenAwaitedFromABackgroundTask() async {
+        let fixture = makeSettings()
+        defer { fixture.cleanup() }
+        let checker = UpdateChecker(
+            settings: fixture.settings,
+            transport: MockTransport(data: releaseJSON(tag: "v1.3.0")),
+            currentVersionString: "1.2.0"
+        )
+        var publishedOnMain: [Bool] = []
+        let observation = checker.objectWillChange.sink { publishedOnMain.append(Thread.isMainThread) }
+        defer { observation.cancel() }
+
+        await Task.detached { await checker.check(manual: true) }.value
+
+        XCTAssertEqual(publishedOnMain, [true, true])
     }
 
     private func releaseJSON(

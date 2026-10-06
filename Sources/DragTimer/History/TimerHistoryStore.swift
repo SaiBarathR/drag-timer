@@ -18,7 +18,7 @@ struct TimerHistoryStore {
             let entries = try JSONDecoder().decode([TimerHistoryEntry].self, from: data)
             return retained(entries, now: now)
         } catch {
-            preserveCorruptFile()
+            preserveCorruptFile(at: fileURL)
             return []
         }
     }
@@ -38,13 +38,6 @@ struct TimerHistoryStore {
             .prefix(maximumEntries))
     }
 
-    private func preserveCorruptFile() {
-        let backupURL = fileURL.deletingPathExtension()
-            .appendingPathExtension(
-                "corrupt-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString).json"
-            )
-        try? FileManager.default.moveItem(at: fileURL, to: backupURL)
-    }
 }
 
 struct PendingExpiryStore {
@@ -57,8 +50,9 @@ struct PendingExpiryStore {
     }
 
     func load() -> [PendingExpiry] {
-        guard let data = try? Data(contentsOf: fileURL),
-              let values = try? JSONDecoder().decode([PendingExpiry].self, from: data) else {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        guard let values = try? JSONDecoder().decode([PendingExpiry].self, from: data) else {
+            preserveCorruptFile(at: fileURL)
             return []
         }
         return values.sorted { lhs, rhs in
@@ -70,6 +64,16 @@ struct PendingExpiryStore {
     func save(_ expiries: [PendingExpiry]) throws {
         try saveJSON(expiries, to: fileURL)
     }
+}
+
+/// Moves an unreadable store aside so the next save cannot overwrite the only
+/// copy of the user's data.
+func preserveCorruptFile(at fileURL: URL) {
+    let backupURL = fileURL.deletingPathExtension()
+        .appendingPathExtension(
+            "corrupt-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString).json"
+        )
+    try? FileManager.default.moveItem(at: fileURL, to: backupURL)
 }
 
 private func saveJSON<T: Encodable>(_ value: T, to fileURL: URL) throws {

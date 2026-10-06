@@ -57,6 +57,27 @@ final class MenuBarCountdownTests: XCTestCase {
         XCTAssertLessThan(StatusItemGeometry.width(for: "10:00"), StatusItemGeometry.width(for: "12h 59m"))
     }
 
+    func testMenuBarSymbolIsDrawnInTheRequestedColor() throws {
+        let symbol = try XCTUnwrap(StatusItemGeometry.tintedSymbol(named: "flame.fill", color: .red))
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        symbol.draw(in: NSRect(x: 0, y: 0, width: 32, height: 32))
+        NSGraphicsContext.restoreGraphicsState()
+
+        var opaque: [NSColor] = []
+        for x in 0..<32 {
+            for y in 0..<32 {
+                if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.9 { opaque.append(color) }
+            }
+        }
+        XCTAssertFalse(opaque.isEmpty)
+        XCTAssertTrue(opaque.allSatisfy { $0.redComponent > 0.9 && $0.greenComponent < 0.1 && $0.blueComponent < 0.1 })
+    }
+
     func testPopoverAnchorTracksClockGlyphInsteadOfWholeItem() {
         let countdownWidth = StatusItemGeometry.width(for: "4:00")
         let countdownBounds = NSRect(x: 0, y: 0, width: countdownWidth, height: 22)

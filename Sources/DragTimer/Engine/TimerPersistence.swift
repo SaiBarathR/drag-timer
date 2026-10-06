@@ -15,6 +15,26 @@ struct TimerPersistence {
         return try JSONDecoder().decode([TimerRecord].self, from: data)
     }
 
+    /// Launch-time load. Records that still decode are kept even when their
+    /// neighbours do not, and a file that lost anything is moved aside first
+    /// because the engine saves over it straight after loading.
+    func loadSalvagingReadableTimers() -> [TimerRecord] {
+        if let timers = try? load() { return timers }
+        let salvaged = (try? Data(contentsOf: fileURL))
+            .flatMap { try? JSONDecoder().decode([Salvageable].self, from: $0) }?
+            .compactMap(\.record) ?? []
+        preserveCorruptFile(at: fileURL)
+        return salvaged
+    }
+
+    private struct Salvageable: Decodable {
+        let record: TimerRecord?
+
+        init(from decoder: Decoder) throws {
+            record = try? TimerRecord(from: decoder)
+        }
+    }
+
     func save(_ timers: [TimerRecord]) throws {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),

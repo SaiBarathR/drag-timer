@@ -75,6 +75,38 @@ final class DragFeelLockTests: XCTestCase {
         XCTAssertEqual(physics.displayDuration, 14 * 60)
     }
 
+    /// Dragging slowly out and back must show every ladder value in both
+    /// directions at every snap range the setting allows.
+    func testEveryLadderValueIsReachableAtEverySnapRange() {
+        let range = DragPhysicsSettings.snapToleranceRange
+        for tolerance in stride(from: 8, through: range.upperBound, by: 2) + [range.upperBound, 60] {
+            var settings = DragPhysicsSettings.forPreset(.snappy)
+            settings.maximumDuration = 24 * 60 * 60
+            settings.snapTolerance = tolerance
+            let rungs = Set(DurationLadder.rungs(for: settings.sanitized))
+            let end = Double(rungs.count) * DragPhysicsSettings.pointsPerRung
+            let out = stride(from: 0.0, through: end, by: 1).map { $0 }
+
+            XCTAssertEqual(shown(settings, along: out), rungs, "outward at \(tolerance)s")
+            XCTAssertEqual(shown(settings, along: out + out.reversed(), skipping: out.count), rungs, "back at \(tolerance)s")
+        }
+    }
+
+    private func shown(
+        _ settings: DragPhysicsSettings,
+        along distances: [Double],
+        skipping warmUp: Int = 0
+    ) -> Set<TimeInterval> {
+        var physics = DragPhysics(settings: settings)
+        physics.begin(at: 0)
+        var values = Set<TimeInterval>()
+        for (index, distance) in distances.enumerated() {
+            physics.updateDrag(distance: distance, timestamp: Double(index) * Self.frame)
+            if index >= warmUp { values.insert(physics.displayDuration) }
+        }
+        return values
+    }
+
     // MARK: - Helpers
 
     private func dragged(preset: FeelPreset, to distance: Double, step: Double) -> DragPhysics {

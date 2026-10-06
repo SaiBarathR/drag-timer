@@ -118,6 +118,7 @@ final class UpdateChecker: ObservableObject {
         return release
     }
 
+    @MainActor
     func checkIfNeeded() async {
         guard settings.automaticallyChecksForUpdates else { return }
         if let lastCheck = settings.lastUpdateCheckAt,
@@ -127,6 +128,9 @@ final class UpdateChecker: ObservableObject {
         await check(manual: false)
     }
 
+    /// A nonisolated async method runs off the main thread even when awaited
+    /// from it; this one publishes state and writes settings the UI reads.
+    @MainActor
     func check(manual: Bool) async {
         guard state != .checking else { return }
         let previousState = state

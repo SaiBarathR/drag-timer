@@ -365,10 +365,10 @@ private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
             pause.lineWidth = highContrast ? 2.1 : 1.6
             pause.stroke()
         } else if let timer = presentation.timer,
-                  let symbol = NSImage(
-                    systemSymbolName: presentation.urgent ? "exclamationmark" : timer.resolvedIdentity.symbolName,
-                    accessibilityDescription: nil
-                  )?.withSymbolConfiguration(.init(pointSize: 8, weight: .bold)) {
+                  let symbol = StatusItemGeometry.tintedSymbol(
+                    named: presentation.urgent ? "exclamationmark" : timer.resolvedIdentity.symbolName,
+                    color: color
+                  ) {
             symbol.draw(
                 in: NSRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8),
                 from: .zero,

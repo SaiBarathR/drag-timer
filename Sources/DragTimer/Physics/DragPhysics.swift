@@ -31,6 +31,11 @@ struct DragPhysicsSettings: Codable, Equatable {
     /// Presets vary feel (inertia, spring), never geometry.
     static let pointsPerRung: Double = 20
 
+    /// A snap zone holds for 1.6 times its range once engaged. Past 40
+    /// seconds that hold swallows the rung next to a snap point (and 1h 15m
+    /// entirely, between the 1h and 1h 30m zones), making it unselectable.
+    static let snapToleranceRange: ClosedRange<TimeInterval> = 1...40
+
     var minimumDuration: TimeInterval = 60
     var maximumDuration: TimeInterval = 4 * 60 * 60
     var inertiaStrength: Double = 0.075
@@ -84,7 +89,10 @@ struct DragPhysicsSettings: Codable, Equatable {
         copy.inertiaStrength = max(0, inertiaStrength)
         copy.springStiffness = max(1, springStiffness)
         copy.springDamping = max(0, springDamping)
-        copy.snapTolerance = max(1, snapTolerance)
+        copy.snapTolerance = min(
+            max(snapTolerance, Self.snapToleranceRange.lowerBound),
+            Self.snapToleranceRange.upperBound
+        )
         return copy
     }
 }
