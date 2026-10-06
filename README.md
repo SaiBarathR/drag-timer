@@ -83,6 +83,14 @@ Menu bar selects the deadline, count, pinned, or ring presentation. Appearance c
 
 ## Build from source
 
+**Full Xcode is required.** Command Line Tools alone cannot build Drag Timer: `swift build` fails with a compiler or SDK error that never mentions Xcode. Install Xcode, open it once, then select it:
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+```
+
+To leave `xcode-select` unchanged, prefix each command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` instead.
+
 ```sh
 swift build
 swift run
@@ -95,7 +103,9 @@ Build an app bundle:
 open "dist/Drag Timer.app"
 ```
 
-The script applies an **ad-hoc** code signature to the bundle — required for the app to launch at all on Apple Silicon — but it is not signed with a Developer ID or notarized for frictionless distribution.
+When Command Line Tools are selected, the script builds with an Xcode from `/Applications` and stops with instructions if it finds none. It applies an **ad-hoc** code signature to the bundle — required for the app to launch at all on Apple Silicon — but it is not signed with a Developer ID or notarized for frictionless distribution.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the project layout and contribution workflow.
 
 ## Verify
 

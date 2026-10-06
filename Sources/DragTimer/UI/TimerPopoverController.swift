@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 
 struct TimerPopoverActions {
     let cancelAll: () -> Void
