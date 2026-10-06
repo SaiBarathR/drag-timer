@@ -22,6 +22,7 @@ final class TimerEngine: ObservableObject {
     private let scheduler: DispatchSourceTimer
     private var wakeObserver: NSObjectProtocol?
     private var activeAudioExpiryID: UUID?
+    private var didRequestNotificationAuthorization = false
 
     init(
         persistence: TimerPersistence,
@@ -76,10 +77,6 @@ final class TimerEngine: ObservableObject {
     }
 
     var currentExpiry: PendingExpiry? { pendingExpiries.first }
-
-    func requestNotificationAuthorization() {
-        notificationService.requestAuthorization()
-    }
 
     @discardableResult
     func createTimer(template: TimerTemplate) -> TimerRecord {
@@ -412,6 +409,20 @@ final class TimerEngine: ObservableObject {
     }
 
     private func insert(_ records: [TimerRecord]) {
+        // Asked when the first timer is started rather than at launch, so the
+        // system prompt arrives when its purpose is obvious. macOS only shows
+        // it while the permission is undetermined.
+        if !didRequestNotificationAuthorization {
+            didRequestNotificationAuthorization = true
+            notificationService.requestAuthorization { [weak self] granted in
+                // Requests added before the user answered were refused, so
+                // the timers that prompted the question need scheduling again.
+                guard granted, let self else { return }
+                for timer in self.timers where !timer.isPaused {
+                    self.notificationService.schedule(timer)
+                }
+            }
+        }
         activate(records)
         persistActiveTimers()
         rearmScheduler()

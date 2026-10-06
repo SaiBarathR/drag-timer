@@ -40,9 +40,9 @@ private struct HistoryView: View {
     @State private var confirmsClear = false
 
     private var recentEntries: [TimerHistoryEntry] {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
-        return timerEngine.historyEntries.filter { entry in
-            guard entry.endedAt >= cutoff else { return false }
+        // The engine already trims to the retention window; everything kept
+        // is shown.
+        timerEngine.historyEntries.filter { entry in
             switch filter {
             case .all: return entry.outcome != .discarded
             case .completed: return entry.outcome == .completed
@@ -53,8 +53,7 @@ private struct HistoryView: View {
     }
 
     private var insights: TimerHistoryInsights {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date())
-        return TimerHistoryInsights.calculate(entries: timerEngine.historyEntries, since: cutoff)
+        TimerHistoryInsights.calculate(entries: timerEngine.historyEntries)
     }
 
     var body: some View {
@@ -71,7 +70,7 @@ private struct HistoryView: View {
                 ContentUnavailableView(
                     "No timer history",
                     systemImage: "clock.arrow.circlepath",
-                    description: Text("Finished and cancelled timers will appear here. They stay on this Mac.")
+                    description: Text("Finished and cancelled timers from the last \(TimerHistoryStore.retentionDays) days appear here. They stay on this Mac.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

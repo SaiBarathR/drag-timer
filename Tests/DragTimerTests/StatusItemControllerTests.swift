@@ -17,7 +17,7 @@ final class StatusItemControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.currentWidth, 32)
         controller.setPopoverVisible(true)
-        controller.requestPopoverForTesting()
+        controller.showPopover()
 
         XCTAssertEqual(controller.currentWidth, 32)
         XCTAssertEqual(requestedAnchors, [controller.currentPopoverAnchorRect])
@@ -40,7 +40,7 @@ final class StatusItemControllerTests: XCTestCase {
         let runningWidth = controller.currentWidth
 
         controller.setPopoverVisible(true)
-        controller.requestPopoverForTesting()
+        controller.showPopover()
 
         XCTAssertGreaterThan(runningWidth, 32)
         XCTAssertEqual(controller.currentWidth, runningWidth)
