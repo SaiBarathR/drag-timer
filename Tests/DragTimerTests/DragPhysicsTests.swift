@@ -284,6 +284,11 @@ final class DragPhysicsTests: XCTestCase {
         XCTAssertEqual(collapsed.maximumDuration, 240)
     }
 
+    func testCustomFeelIsOfferedOnlyWhileItIsCurrent() {
+        XCTAssertEqual(FeelPreset.choices(current: .snappy), [.precise, .snappy, .throwable])
+        XCTAssertEqual(FeelPreset.choices(current: .custom), [.precise, .snappy, .throwable, .custom])
+    }
+
     func testDragSelectionTextOmitsSeconds() {
         XCTAssertEqual(DurationText.dragSelection(60), "1m")
         XCTAssertEqual(DurationText.dragSelection(7 * 60), "7m")
