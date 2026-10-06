@@ -807,7 +807,8 @@ private struct TimerEditorView: View {
                 Spacer()
                 Button("Save changes") {
                     var updated = timer
-                    updated.label = label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Timer" : label
+                    let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                    updated.label = trimmedLabel.isEmpty ? "Timer" : trimmedLabel
                     updated.soundName = soundName
                     updated.volume = volume
                     updated.loop = loop

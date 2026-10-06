@@ -149,7 +149,7 @@ private struct HistoryRow: View {
         HStack(spacing: 12) {
             TimerIdentityBead(identity: entry.identity, size: 28)
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.label).fontWeight(.medium).lineLimit(1)
+                Text(entry.label).fontWeight(.medium).lineLimit(2).help(entry.label)
                 Text("\(DurationText.compact(entry.plannedDuration)) · \(outcomeText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
