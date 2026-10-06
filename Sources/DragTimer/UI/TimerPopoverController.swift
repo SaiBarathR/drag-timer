@@ -405,7 +405,7 @@ private struct TimerListView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("\(expiry.timer.label) finished")
                         .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
+                        .lineLimit(2)
                     if timerEngine.pendingExpiries.count > 1 {
                         Text("1 of \(timerEngine.pendingExpiries.count)")
                             .font(.caption).foregroundStyle(.secondary)
@@ -648,7 +648,8 @@ private struct TimerRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(timer.label)
                     .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .help(timer.label)
                     .overlay(alignment: .trailing) {
                         if isPinned {
                             Image(systemName: "pin.fill")
@@ -767,7 +768,11 @@ private struct TimerEditorView: View {
                 .padding(.top, 22)
 
             Form {
-                TextField("Label", text: $label)
+                // Reserved rather than growing: the sheet keeps the size it
+                // was presented with, so a field that grows while typing
+                // would hide every line but the last.
+                TextField("Label", text: $label, axis: .vertical)
+                    .lineLimit(3, reservesSpace: true)
                 Picker("Sound", selection: $soundName) {
                     ForEach(AlertSound.allCases) { sound in
                         Text(sound.displayName).tag(sound.rawValue)
