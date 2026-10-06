@@ -366,20 +366,11 @@ private struct PresetsSettingsView: View {
     }
 
     private var newPreset: QuickStartPreset {
-        QuickStartPreset(
-            duration: 5 * 60,
-            alert: PresetAlertOptions(
-                soundName: settings.defaultSoundName,
-                volume: settings.defaultVolume,
-                loop: settings.defaultLoop,
-                notify: settings.defaultNotificationsEnabled,
-                snoozeMinutes: settings.defaultSnoozeMinutes
-            )
-        )
+        QuickStartPreset(duration: 5 * 60, alert: PresetAlertOptions(settings.defaultOptions()))
     }
 
     private func alertSummary(_ preset: QuickStartPreset) -> String {
-        var values = [preset.alert.soundName]
+        var values = [AlertSound(rawValue: preset.alert.soundName)?.displayName ?? preset.alert.soundName]
         if preset.alert.loop { values.append("loops") }
         if preset.alert.notify { values.append("notification") }
         return values.joined(separator: ", ")
@@ -393,18 +384,16 @@ private struct PresetEditorView: View {
     var body: some View {
         TimerDefinitionEditorView(
             title: "Quick start preset",
-            label: preset.label,
+            options: TimerOptions(label: preset.label, alert: preset.alert, identity: preset.identity),
             duration: preset.duration,
-            alert: preset.alert,
-            identity: preset.identity,
             requiresLabel: false
-        ) { label, duration, alert, identity in
+        ) { options, duration in
             onSave(QuickStartPreset(
                 id: preset.id,
                 duration: duration,
-                label: label,
-                alert: alert,
-                identity: identity
+                label: options.label,
+                alert: PresetAlertOptions(options),
+                identity: options.identity
             ))
         }
     }
@@ -663,31 +652,11 @@ private struct RoutineTimerEditorView: View {
     var body: some View {
         TimerDefinitionEditorView(
             title: "Routine timer",
-            label: timer.options.label,
+            options: timer.options,
             duration: timer.duration,
-            alert: PresetAlertOptions(
-                soundName: timer.options.soundName,
-                volume: timer.options.volume,
-                loop: timer.options.loop,
-                notify: timer.options.notify,
-                snoozeMinutes: timer.options.snoozeMinutes
-            ),
-            identity: timer.options.identity,
             requiresLabel: true
-        ) { label, duration, alert, identity in
-            onSave(RoutineTimerDefinition(
-                id: timer.id,
-                duration: duration,
-                options: TimerOptions(
-                    label: label,
-                    soundName: alert.soundName,
-                    volume: alert.volume,
-                    loop: alert.loop,
-                    notify: alert.notify,
-                    snoozeMinutes: alert.snoozeMinutes,
-                    identity: identity
-                )
-            ))
+        ) { options, duration in
+            onSave(RoutineTimerDefinition(id: timer.id, duration: duration, options: options))
         }
     }
 }
@@ -696,85 +665,43 @@ private struct TimerDefinitionEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let title: String
     let requiresLabel: Bool
-    let onSave: (String, TimeInterval, PresetAlertOptions, TimerIdentity) -> Void
+    let onSave: (TimerOptions, TimeInterval) -> Void
 
-    @State private var label: String
+    @State private var options: TimerOptions
     @State private var minutes: Int
-    @State private var soundName: String
-    @State private var volume: Double
-    @State private var loop: Bool
-    @State private var notify: Bool
-    @State private var snoozeMinutes: Int
-    @State private var color: TimerColorToken
-    @State private var symbolName: String
 
     init(
         title: String,
-        label: String,
+        options: TimerOptions,
         duration: TimeInterval,
-        alert: PresetAlertOptions,
-        identity: TimerIdentity,
         requiresLabel: Bool,
-        onSave: @escaping (String, TimeInterval, PresetAlertOptions, TimerIdentity) -> Void
+        onSave: @escaping (TimerOptions, TimeInterval) -> Void
     ) {
         self.title = title
         self.requiresLabel = requiresLabel
         self.onSave = onSave
-        _label = State(initialValue: label)
-        _minutes = State(initialValue: Int((duration / 60).rounded()))
-        _soundName = State(initialValue: alert.soundName)
-        _volume = State(initialValue: alert.volume)
-        _loop = State(initialValue: alert.loop)
-        _notify = State(initialValue: alert.notify)
-        _snoozeMinutes = State(initialValue: alert.snoozeMinutes)
-        _color = State(initialValue: identity.color)
-        _symbolName = State(initialValue: identity.symbolName)
+        _options = State(initialValue: options)
+        _minutes = State(initialValue: DurationFields.clamped(hours: 0, minutes: Int((duration / 60).rounded())))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Text(title).font(.headline).padding(.top, 20)
             Form {
-                TextField("Label", text: $label)
-                Stepper("Duration: \(minutes) min", value: $minutes, in: 1...1_440)
-                Picker("Color", selection: $color) {
-                    ForEach(TimerColorToken.allCases) { Text($0.displayName).tag($0) }
-                }
-                Picker("Symbol", selection: $symbolName) {
-                    ForEach(TimerIdentity.allowedSymbols, id: \.self) { name in
-                        Label(name.replacingOccurrences(of: ".fill", with: "").capitalized, systemImage: name)
-                            .tag(name)
-                    }
-                }
-                Picker("Sound", selection: $soundName) {
-                    ForEach(AlertSound.allCases) { Text($0.displayName).tag($0.rawValue) }
-                }
-                HStack { Text("Volume"); Slider(value: $volume, in: 0...1) }
-                Toggle("Loop sound", isOn: $loop)
-                Toggle("Show notification", isOn: $notify)
-                Stepper("Snooze for \(snoozeMinutes) min", value: $snoozeMinutes, in: 1...60)
+                TextField("Label", text: $options.label)
+                DurationFields(minutes: $minutes)
+                TimerOptionFields(options: $options)
             }
             .padding()
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
                 Button("Save") {
-                    onSave(
-                        label,
-                        TimeInterval(minutes * 60),
-                        PresetAlertOptions(
-                            soundName: soundName,
-                            volume: volume,
-                            loop: loop,
-                            notify: notify,
-                            snoozeMinutes: snoozeMinutes
-                        ),
-                        TimerIdentity(color: color, symbolName: symbolName)
-                    )
+                    onSave(options, TimeInterval(minutes * 60))
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(requiresLabel && label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(requiresLabel && options.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding()
         }

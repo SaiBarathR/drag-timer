@@ -15,7 +15,17 @@ extension TimerColorToken {
         }
     }
 
-    var displayName: String { rawValue.capitalized }
+    /// Named for the system color actually shown, not the stored token.
+    var displayName: String {
+        switch self {
+        case .blue: return "Blue"
+        case .amber: return "Orange"
+        case .mint: return "Green"
+        case .violet: return "Purple"
+        case .red: return "Red"
+        case .graphite: return "Gray"
+        }
+    }
 }
 
 enum TimerAppearancePolicy {

@@ -22,6 +22,32 @@ struct PresetAlertOptions: Codable, Equatable {
     }
 }
 
+extension PresetAlertOptions {
+    init(_ options: TimerOptions) {
+        self.init(
+            soundName: options.soundName,
+            volume: options.volume,
+            loop: options.loop,
+            notify: options.notify,
+            snoozeMinutes: options.snoozeMinutes
+        )
+    }
+}
+
+extension TimerOptions {
+    init(label: String, alert: PresetAlertOptions, identity: TimerIdentity = .default) {
+        self.init(
+            label: label,
+            soundName: alert.soundName,
+            volume: alert.volume,
+            loop: alert.loop,
+            notify: alert.notify,
+            snoozeMinutes: alert.snoozeMinutes,
+            identity: identity
+        )
+    }
+}
+
 struct QuickStartPreset: Codable, Identifiable, Equatable {
     var id: UUID
     var duration: TimeInterval
@@ -46,15 +72,7 @@ struct QuickStartPreset: Codable, Identifiable, Equatable {
     func timerTemplate() -> TimerTemplate {
         TimerTemplate(
             duration: duration,
-            options: TimerOptions(
-                label: label.isEmpty ? "Timer" : label,
-                soundName: alert.soundName,
-                volume: alert.volume,
-                loop: alert.loop,
-                notify: alert.notify,
-                snoozeMinutes: alert.snoozeMinutes,
-                identity: identity
-            ),
+            options: TimerOptions(label: label.isEmpty ? "Timer" : label, alert: alert, identity: identity),
             origin: .preset
         )
     }

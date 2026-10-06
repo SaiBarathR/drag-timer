@@ -786,26 +786,12 @@ private struct TimerEditorView: View {
     let timer: TimerRecord
     let onSave: (TimerRecord) -> Void
 
-    @State private var label: String
-    @State private var notify: Bool
-    @State private var loop: Bool
-    @State private var soundName: String
-    @State private var volume: Double
-    @State private var snoozeMinutes: Int
-    @State private var identityColor: TimerColorToken
-    @State private var identitySymbol: String
+    @State private var options: TimerOptions
 
     init(timer: TimerRecord, onSave: @escaping (TimerRecord) -> Void) {
         self.timer = timer
         self.onSave = onSave
-        _label = State(initialValue: timer.label)
-        _notify = State(initialValue: timer.notify)
-        _loop = State(initialValue: timer.loop)
-        _soundName = State(initialValue: AlertSound.normalizedName(timer.soundName))
-        _volume = State(initialValue: timer.volume)
-        _snoozeMinutes = State(initialValue: timer.snoozeMinutes)
-        _identityColor = State(initialValue: timer.resolvedIdentity.color)
-        _identitySymbol = State(initialValue: timer.resolvedIdentity.symbolName)
+        _options = State(initialValue: timer.options)
     }
 
     var body: some View {
@@ -818,33 +804,9 @@ private struct TimerEditorView: View {
                 // Reserved rather than growing: the sheet keeps the size it
                 // was presented with, so a field that grows while typing
                 // would hide every line but the last.
-                TextField("Label", text: $label, axis: .vertical)
+                TextField("Label", text: $options.label, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
-                Picker("Sound", selection: $soundName) {
-                    ForEach(AlertSound.allCases) { sound in
-                        Text(sound.displayName).tag(sound.rawValue)
-                    }
-                }
-                if soundName == AlertSound.systemBeep.rawValue {
-                    Text("System beep uses your Mac's alert volume.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                HStack {
-                    Text("Volume")
-                    Slider(value: $volume, in: 0...1)
-                }
-                Toggle("Loop sound", isOn: $loop)
-                Toggle("Show notification", isOn: $notify)
-                Stepper("Snooze for \(snoozeMinutes) min", value: $snoozeMinutes, in: 1...60)
-                Picker("Color", selection: $identityColor) {
-                    ForEach(TimerColorToken.allCases) { Text($0.displayName).tag($0) }
-                }
-                Picker("Symbol", selection: $identitySymbol) {
-                    ForEach(TimerIdentity.allowedSymbols, id: \.self) { name in
-                        Label(name, systemImage: name).tag(name)
-                    }
-                }
+                TimerOptionFields(options: $options)
             }
             .padding(.horizontal, 20)
             .padding(.top, 10)
@@ -854,14 +816,7 @@ private struct TimerEditorView: View {
                 Spacer()
                 Button("Save changes") {
                     var updated = timer
-                    let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
-                    updated.label = trimmedLabel.isEmpty ? "Timer" : trimmedLabel
-                    updated.soundName = soundName
-                    updated.volume = volume
-                    updated.loop = loop
-                    updated.notify = notify
-                    updated.snoozeMinutes = snoozeMinutes
-                    updated.identity = TimerIdentity(color: identityColor, symbolName: identitySymbol)
+                    updated.apply(options)
                     onSave(updated)
                     dismiss()
                 }

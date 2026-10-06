@@ -27,6 +27,21 @@ struct TimerIdentity: Codable, Equatable {
         "flame.fill", "pills.fill", "briefcase.fill", "leaf.fill", "music.note"
     ]
 
+    static func displayName(forSymbol name: String) -> String {
+        switch name {
+        case "cup.and.saucer.fill": return "Coffee"
+        case "book.fill": return "Reading"
+        case "figure.run": return "Exercise"
+        case "washer.fill": return "Laundry"
+        case "flame.fill": return "Cooking"
+        case "pills.fill": return "Medication"
+        case "briefcase.fill": return "Work"
+        case "leaf.fill": return "Break"
+        case "music.note": return "Music"
+        default: return "Clock"
+        }
+    }
+
     private enum CodingKeys: String, CodingKey { case color, symbolName }
 
     init(from decoder: Decoder) throws {
@@ -154,6 +169,18 @@ struct TimerRecord: Codable, Identifiable, Equatable {
         self.identity = options.identity
         self.origin = origin
         self.parentEventID = parentEventID
+    }
+
+    /// Replaces everything an editor can change, leaving timing untouched.
+    mutating func apply(_ options: TimerOptions) {
+        let trimmedLabel = options.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        label = trimmedLabel.isEmpty ? "Timer" : trimmedLabel
+        soundName = AlertSound.normalizedName(options.soundName)
+        volume = min(max(options.volume, 0), 1)
+        loop = options.loop
+        notify = options.notify
+        snoozeMinutes = max(1, options.snoozeMinutes)
+        identity = options.identity
     }
 
     var options: TimerOptions {
