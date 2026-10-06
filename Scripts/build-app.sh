@@ -4,6 +4,28 @@ set -euo pipefail
 root="${0:A:h:h}"
 cd "$root"
 
+# Command Line Tools alone cannot compile the app. When they are the active
+# developer directory, build with an Xcode from /Applications instead.
+developer_dir="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || true)}"
+if [[ -z "$developer_dir" || "$developer_dir" == *CommandLineTools* ]]; then
+    xcode_developer_dir=""
+    for xcode in /Applications/Xcode.app /Applications/Xcode-beta.app; do
+        if [[ -d "$xcode/Contents/Developer" ]]; then
+            xcode_developer_dir="$xcode/Contents/Developer"
+            break
+        fi
+    done
+    if [[ -z "$xcode_developer_dir" ]]; then
+        echo "Full Xcode is required to build Drag Timer; Command Line Tools alone cannot compile it." >&2
+        echo "Install Xcode, open it once, then run:" >&2
+        echo "  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer" >&2
+        echo "If Xcode is installed elsewhere, set DEVELOPER_DIR to its Contents/Developer directory." >&2
+        exit 1
+    fi
+    export DEVELOPER_DIR="$xcode_developer_dir"
+    echo "Full Xcode is not the active developer directory; building with $DEVELOPER_DIR"
+fi
+
 app_path="$root/dist/Drag Timer.app"
 executable="$app_path/Contents/MacOS/DragTimer"
 build_root="$root/.build/universal-release"
