@@ -14,7 +14,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Choose whether the menu bar shows the nearest deadline, active count, a pinned timer, or a progress ring.
 - Create labeled, colored, reorderable Quick start presets with their own sound and notification behavior.
 - Save named routines such as Pomodoro or Morning routine and launch all of their timers together.
-- Pause, resume, reset, edit, snooze, or cancel timers from the menu-bar popover.
+- Pause, resume, reset, edit, snooze, cancel, or mark timers done early from the menu-bar popover.
 - Snooze, restart, silence, or mark a finished timer done without losing other simultaneous expiries.
 - Stop every active timer at once.
 - Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
@@ -58,6 +58,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - Click a Quick start play button to begin a preset timer without dragging.
 - Click a routine in the compact Routines strip to start every timer snapshot in that routine at once. The launched timers remain independently controllable.
 - Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
+- Click the checkmark beside a running timer, or choose **Mark done** in the `…` menu, to finish it early. It is recorded in history as completed and never rings.
 - At expiry, use **Snooze**, **Restart**, or **Mark done**. The speaker button silences audio without resolving the expiry card.
 - Click **Stop all** at the bottom of the popover to cancel every active timer and stop ringing audio. Existing expiry cards still require an explicit action.
 - Use the history button in the footer to review completed and cancelled timers, filter the list, clear it, or start a timer again.

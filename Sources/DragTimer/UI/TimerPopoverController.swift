@@ -23,6 +23,7 @@ struct RoutineLaunchAction {
 enum TimerRowInlineAction: Hashable {
     case delete
     case reset
+    case done
     case pause
     case resume
 
@@ -30,6 +31,7 @@ enum TimerRowInlineAction: Hashable {
         switch self {
         case .delete: return "trash"
         case .reset: return "arrow.counterclockwise"
+        case .done: return "checkmark"
         case .pause: return "pause.fill"
         case .resume: return "play.fill"
         }
@@ -39,6 +41,7 @@ enum TimerRowInlineAction: Hashable {
         switch self {
         case .delete: return "Delete timer"
         case .reset: return "Reset timer"
+        case .done: return "Mark timer done"
         case .pause: return "Pause timer"
         case .resume: return "Resume timer"
         }
@@ -46,8 +49,9 @@ enum TimerRowInlineAction: Hashable {
 }
 
 enum TimerRowActionPolicy {
+    /// Paused rows are already full, so their Mark done stays in the `…` menu.
     static func inlineActions(isPaused: Bool) -> [TimerRowInlineAction] {
-        isPaused ? [.delete, .reset, .resume] : [.pause]
+        isPaused ? [.delete, .reset, .resume] : [.done, .pause]
     }
 }
 
@@ -474,6 +478,7 @@ private struct TimerListView: View {
                         },
                         onReset: { timerEngine.reset(id: timer.id) },
                         onSnooze: { timerEngine.snooze(id: timer.id) },
+                        onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
                     if timer.id != timerEngine.timers.last?.id {
@@ -615,6 +620,7 @@ private struct TimerRow: View {
     let onPauseResume: () -> Void
     let onReset: () -> Void
     let onSnooze: () -> Void
+    let onDone: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -677,6 +683,7 @@ private struct TimerRow: View {
                     Button("Reset timer", action: onReset)
                     Button("Snooze \(timer.snoozeMinutes) min", action: onSnooze)
                     Divider()
+                    Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -709,6 +716,8 @@ private struct TimerRow: View {
             onCancel()
         case .reset:
             onReset()
+        case .done:
+            onDone()
         case .pause, .resume:
             onPauseResume()
         }

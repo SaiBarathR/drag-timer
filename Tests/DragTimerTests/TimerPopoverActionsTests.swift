@@ -2,10 +2,10 @@ import XCTest
 @testable import DragTimer
 
 final class TimerPopoverActionsTests: XCTestCase {
-    func testRunningTimerKeepsOnlyPauseAsInlineAction() {
+    func testRunningTimerExposesMarkDoneAndPauseInline() {
         XCTAssertEqual(
             TimerRowActionPolicy.inlineActions(isPaused: false),
-            [.pause]
+            [.done, .pause]
         )
     }
 
@@ -21,6 +21,8 @@ final class TimerPopoverActionsTests: XCTestCase {
         XCTAssertEqual(TimerRowInlineAction.delete.accessibilityLabel, "Delete timer")
         XCTAssertEqual(TimerRowInlineAction.reset.symbolName, "arrow.counterclockwise")
         XCTAssertEqual(TimerRowInlineAction.reset.accessibilityLabel, "Reset timer")
+        XCTAssertEqual(TimerRowInlineAction.done.symbolName, "checkmark")
+        XCTAssertEqual(TimerRowInlineAction.done.accessibilityLabel, "Mark timer done")
         XCTAssertEqual(TimerRowInlineAction.resume.symbolName, "play.fill")
         XCTAssertEqual(TimerRowInlineAction.resume.accessibilityLabel, "Resume timer")
     }
