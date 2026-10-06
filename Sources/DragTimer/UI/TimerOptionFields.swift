@@ -75,6 +75,9 @@ struct DurationFields: View {
 
     /// Typing 90 in the minutes field carries into the hours field.
     static func clamped(hours: Int, minutes: Int) -> Int {
-        min(max(max(hours, 0) * 60 + max(minutes, 0), range.lowerBound), range.upperBound)
+        // Bound each part first: a pasted 18-digit number must not overflow.
+        let boundedHours = min(max(hours, 0), range.upperBound / 60)
+        let boundedMinutes = min(max(minutes, 0), range.upperBound)
+        return min(max(boundedHours * 60 + boundedMinutes, range.lowerBound), range.upperBound)
     }
 }

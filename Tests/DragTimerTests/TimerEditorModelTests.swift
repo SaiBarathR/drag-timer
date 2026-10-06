@@ -22,6 +22,8 @@ final class TimerEditorModelTests: XCTestCase {
         XCTAssertEqual(DurationFields.clamped(hours: 0, minutes: 0), 1)
         XCTAssertEqual(DurationFields.clamped(hours: -3, minutes: -5), 1)
         XCTAssertEqual(DurationFields.clamped(hours: 30, minutes: 0), 24 * 60)
+        XCTAssertEqual(DurationFields.clamped(hours: .max, minutes: .max), 24 * 60)
+        XCTAssertEqual(DurationFields.clamped(hours: 200_000_000_000_000_000, minutes: 5), 24 * 60)
     }
 
     func testApplyingEditedOptionsKeepsTimingAndNormalizesValues() {
