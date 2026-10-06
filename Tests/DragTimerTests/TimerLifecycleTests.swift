@@ -140,6 +140,29 @@ final class TimerLifecycleTests: XCTestCase {
         XCTAssertEqual(fixture.engine.timers.first?.remaining(at: fixture.clock.date), 120)
     }
 
+    /// Every other test advances a fake clock and calls `processExpiries`
+    /// itself; this one lets the real scheduler fire.
+    @MainActor
+    func testSchedulerFiresATimerOnTheRealClock() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: AudioSpy()
+        )
+        let timer = engine.createTimer(duration: 1, options: TimerOptions(label: "Real"))
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        XCTAssertTrue(engine.pendingExpiries.isEmpty)
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        XCTAssertEqual(engine.pendingExpiries.map(\.timer.id), [timer.id])
+        let lateness = engine.pendingExpiries[0].expiredAt.timeIntervalSince(timer.fireDate)
+        XCTAssertGreaterThanOrEqual(lateness, 0)
+        XCTAssertLessThan(lateness, 0.3)
+    }
+
     @MainActor
     func testMarkDoneCompletesRunningTimerWithoutAlertOrExpiryCard() {
         let directory = temporaryDirectory()

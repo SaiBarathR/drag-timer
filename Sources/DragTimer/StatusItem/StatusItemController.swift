@@ -14,6 +14,7 @@ final class StatusItemController: NSObject {
     private var timersCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
     private var countdownTicker: Timer?
+    private var countdownTickerFireDate: Date?
     private var isPopoverVisible = false
     private var inputDiagnosticsMonitor: Any?
     fileprivate static let inputDiagnosticsEnabled = CommandLine.arguments.contains("--input-diagnostics")
@@ -174,7 +175,10 @@ final class StatusItemController: NSObject {
             toolTip: description + ". Drag to set another timer or click to view timers.",
             accessibilityLabel: "Drag Timer, \(description)"
         )
-        setCountdownTickerRunning(presentation.timer != nil && presentation.requestedMode != .count)
+        let tickingTimer = presentation.requestedMode == .count || presentation.timer?.isPaused == true
+            ? nil
+            : presentation.timer
+        setCountdownTicker(for: tickingTimer, at: date)
     }
 
     private func updateStatusView(
@@ -219,19 +223,28 @@ final class StatusItemController: NSObject {
         }
     }
 
-    private func setCountdownTickerRunning(_ shouldRun: Bool) {
-        if shouldRun {
-            guard countdownTicker == nil else { return }
-
-            let ticker = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-                self?.refreshCountdown()
-            }
-            countdownTicker = ticker
-            RunLoop.main.add(ticker, forMode: .common)
-        } else {
+    /// Ticks on the displayed timer's whole-second boundaries. The ticker is
+    /// rebuilt only when that phase changes, not on every refresh.
+    private func setCountdownTicker(for timer: TimerRecord?, at date: Date) {
+        guard let timer else {
             countdownTicker?.invalidate()
             countdownTicker = nil
+            countdownTickerFireDate = nil
+            return
         }
+        guard countdownTicker == nil || countdownTickerFireDate != timer.fireDate else { return }
+
+        countdownTicker?.invalidate()
+        let ticker = Timer(
+            fire: CountdownClock.nextTick(for: timer, after: date),
+            interval: 1,
+            repeats: true
+        ) { [weak self] _ in
+            self?.refreshCountdown()
+        }
+        countdownTicker = ticker
+        countdownTickerFireDate = timer.fireDate
+        RunLoop.main.add(ticker, forMode: .common)
     }
 
     @objc private func showPopover() {

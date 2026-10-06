@@ -190,11 +190,12 @@ private final class DragSurfaceView: NSView {
         labelBackingLayer.isHidden = !showsLabel
         labelLayer.isHidden = !showsLabel
         if showsLabel {
-            layoutLabel(cursor: cursor)
-
+            // Measure before laying out, so the pill takes the width of the
+            // text it is about to show rather than the previous one.
             if updateText {
                 updateLabelText(duration: duration, isSnapped: isSnapped)
             }
+            layoutLabel(cursor: cursor)
         }
 
         CATransaction.commit()

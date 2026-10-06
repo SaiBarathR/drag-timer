@@ -100,3 +100,20 @@ enum MenuBarPresentationPolicy {
         )
     }
 }
+
+/// Countdowns change digits when a whole number of seconds remains. Ticking on
+/// those instants keeps the menu bar and the popover in step with each other
+/// and with the alert, instead of each lagging by its own arbitrary phase.
+enum CountdownClock {
+    /// A past instant in phase with the timer's remaining whole seconds.
+    static func tickAnchor(for timer: TimerRecord) -> Date {
+        timer.fireDate.addingTimeInterval(-7 * 24 * 60 * 60)
+    }
+
+    /// The first instant at or after `date` at which `timer` has a whole
+    /// number of seconds left.
+    static func nextTick(for timer: TimerRecord, after date: Date) -> Date {
+        let untilFire = timer.fireDate.timeIntervalSince(date)
+        return date.addingTimeInterval(untilFire - untilFire.rounded(.down))
+    }
+}
