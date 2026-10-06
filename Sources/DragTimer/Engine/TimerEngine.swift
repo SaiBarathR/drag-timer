@@ -580,6 +580,10 @@ final class TimerEngine: ObservableObject {
             return
         }
         let interval = max(0, next.fireDate.timeIntervalSince(now()))
+        // Deliberately an uptime deadline, which stands still during sleep.
+        // A wall-clock deadline would fire the moment the Mac resumes, ahead
+        // of `handleWake`, and ring a timer that the "fire timers missed
+        // during sleep" setting says to discard.
         scheduler.schedule(deadline: .now() + interval, repeating: .never, leeway: .milliseconds(25))
     }
 

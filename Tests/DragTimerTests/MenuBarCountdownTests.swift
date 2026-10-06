@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 @testable import DragTimer
 
@@ -69,6 +70,50 @@ final class MenuBarCountdownTests: XCTestCase {
         XCTAssertEqual(MenuBarCountdown.text(forRemaining: 0.4), "0:01")
         XCTAssertEqual(MenuBarCountdown.text(forRemaining: 59.6), "1:00")
         XCTAssertEqual(MenuBarCountdown.text(forRemaining: 3_599.6), "1h 0m")
+    }
+
+    func testCountdownTicksWhenAWholeNumberOfSecondsRemains() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000.25)
+        let timer = TimerRecord(
+            createdAt: start,
+            fireDate: start.addingTimeInterval(90),
+            options: TimerOptions(label: "Phase")
+        )
+
+        let tick = CountdownClock.nextTick(for: timer, after: start.addingTimeInterval(10.4))
+
+        XCTAssertEqual(tick.timeIntervalSince(start), 11, accuracy: 0.000_001)
+        XCTAssertEqual(MenuBarCountdown.text(for: timer, at: tick), "1:19")
+        XCTAssertEqual(CountdownClock.nextTick(for: timer, after: tick), tick)
+
+        let anchor = CountdownClock.tickAnchor(for: timer)
+        XCTAssertLessThan(anchor, start)
+        let phase = timer.fireDate.timeIntervalSince(anchor)
+        XCTAssertEqual(phase, phase.rounded())
+    }
+
+    /// The popover rows are driven by this schedule. It must start at or just
+    /// before "now" (so a row renders at once) and stay on the timer's phase.
+    func testPopoverRowScheduleStartsImmediatelyAndStaysInPhase() {
+        let now = Date()
+        let timer = TimerRecord(
+            createdAt: now.addingTimeInterval(-12.3),
+            fireDate: now.addingTimeInterval(407.7),
+            options: TimerOptions(label: "Row")
+        )
+        let schedule = PeriodicTimelineSchedule(from: CountdownClock.tickAnchor(for: timer), by: 1)
+
+        let entries = Array(schedule.entries(from: now, mode: .normal).prefix(3))
+
+        XCTAssertEqual(entries.count, 3)
+        XCTAssertLessThanOrEqual(entries[0], now)
+        XCTAssertGreaterThan(entries[0], now.addingTimeInterval(-1))
+        for entry in entries {
+            let remaining = timer.fireDate.timeIntervalSince(entry)
+            XCTAssertEqual(remaining, remaining.rounded(), accuracy: 0.000_1)
+        }
+        XCTAssertEqual(MenuBarCountdown.text(for: timer, at: entries[0]), "6:48")
+        XCTAssertEqual(MenuBarCountdown.text(for: timer, at: entries[1]), "6:47")
     }
 
     func testMenuBarSymbolIsDrawnInTheRequestedColor() throws {

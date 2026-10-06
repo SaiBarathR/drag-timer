@@ -258,8 +258,6 @@ private struct TimerListView: View {
     let onOpenHistory: () -> Void
     let onStopAll: () -> Void
 
-    @State private var now = Date()
-    @State private var isVisible = false
     @State private var timerBeingEdited: TimerRecord?
     @State private var heldOrder: [UUID] = []
     @State private var isPointerOverList = false
@@ -268,8 +266,6 @@ private struct TimerListView: View {
     @State private var customDuration = ""
     @FocusState private var customDurationFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -301,12 +297,9 @@ private struct TimerListView: View {
         .frame(minHeight: TimerPopoverGeometry.minimumContentHeight)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
-            isVisible = true
-            now = Date()
             heldOrder = timerEngine.timers.map(\.id)
         }
         .onDisappear {
-            isVisible = false
             isPointerOverList = false
             pendingSettle?.cancel()
         }
@@ -319,14 +312,6 @@ private struct TimerListView: View {
             case .hold: break
             case .afterDelay: scheduleSettle()
             case .immediately: settleOrder()
-            }
-        }
-        // The hosting controller outlives the popover, so the ticker keeps
-        // firing after close; gating the assignment keeps the body from
-        // re-rendering every second while hidden.
-        .onReceive(ticker) { tick in
-            if isVisible {
-                now = tick
             }
         }
         .sheet(item: $timerBeingEdited) { timer in
@@ -531,9 +516,15 @@ private struct TimerListView: View {
         return ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(rows) { timer in
+                    // Each running row ticks on its own timer's whole-second
+                    // boundaries, and only while the popover is on screen.
+                    TimelineView(.periodic(
+                        from: CountdownClock.tickAnchor(for: timer),
+                        by: timer.isPaused ? 3_600 : 1
+                    )) { context in
                     TimerRow(
                         timer: timer,
-                        now: now,
+                        now: context.date,
                         countdownScale: settings.countdownScale,
                         urgentThreshold: settings.urgentThreshold,
                         highContrast: TimerAppearancePolicy.highContrast(settings: settings),
@@ -552,6 +543,7 @@ private struct TimerListView: View {
                         onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
+                    }
                     if timer.id != rows.last?.id {
                         Divider().padding(.leading, 18)
                     }
