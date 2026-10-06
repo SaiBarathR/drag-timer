@@ -55,6 +55,38 @@ enum TimerRowActionPolicy {
     }
 }
 
+enum TimerListOrderPolicy {
+    /// How long the pointer must be off the list before held rows move.
+    static let settleDelay: TimeInterval = 0.6
+
+    /// Rows keep the position they had in `heldOrder`, so pausing or
+    /// resetting one cannot slide it out from under the pointer. Timers the
+    /// held order has not seen yet follow in the engine's order.
+    static func arranged(_ timers: [TimerRecord], heldOrder: [UUID]) -> [TimerRecord] {
+        let heldIndex = Dictionary(
+            heldOrder.enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return timers.enumerated().sorted { lhs, rhs in
+            (heldIndex[lhs.element.id] ?? .max, lhs.offset) < (heldIndex[rhs.element.id] ?? .max, rhs.offset)
+        }.map(\.element)
+    }
+
+    enum Settle: Equatable {
+        case hold
+        case afterDelay
+        case immediately
+    }
+
+    /// What a change in the engine's timer ids does to the held order. A new
+    /// timer lands in its sorted place right away; a row that was only acted
+    /// on waits, in case the pointer is on its way back.
+    static func settle(from previous: [UUID], to current: [UUID], isPointerOverList: Bool) -> Settle {
+        if isPointerOverList { return .hold }
+        return Set(current).isSubset(of: previous) ? .afterDelay : .immediately
+    }
+}
+
 enum TimerPopoverGeometry {
     /// The measured one-row fitting height before introducing a minimum.
     static let previousMinimumContentHeight: CGFloat = 199
@@ -255,6 +287,10 @@ private struct TimerListView: View {
     @State private var now = Date()
     @State private var isVisible = false
     @State private var timerBeingEdited: TimerRecord?
+    @State private var heldOrder: [UUID] = []
+    @State private var isPointerOverList = false
+    @State private var pendingSettle: DispatchWorkItem?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -290,8 +326,24 @@ private struct TimerListView: View {
         .onAppear {
             isVisible = true
             now = Date()
+            heldOrder = timerEngine.timers.map(\.id)
         }
-        .onDisappear { isVisible = false }
+        .onDisappear {
+            isVisible = false
+            isPointerOverList = false
+            pendingSettle?.cancel()
+        }
+        .onChange(of: timerEngine.timers.map(\.id)) { previous, current in
+            switch TimerListOrderPolicy.settle(
+                from: previous,
+                to: current,
+                isPointerOverList: isPointerOverList
+            ) {
+            case .hold: break
+            case .afterDelay: scheduleSettle()
+            case .immediately: settleOrder()
+            }
+        }
         // The hosting controller outlives the popover, so the ticker keeps
         // firing after close; gating the assignment keeps the body from
         // re-rendering every second while hidden.
@@ -457,9 +509,10 @@ private struct TimerListView: View {
     }
 
     private var timerList: some View {
-        ScrollView {
+        let rows = TimerListOrderPolicy.arranged(timerEngine.timers, heldOrder: heldOrder)
+        return ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(timerEngine.timers) { timer in
+                ForEach(rows) { timer in
                     TimerRow(
                         timer: timer,
                         now: now,
@@ -481,13 +534,42 @@ private struct TimerListView: View {
                         onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
-                    if timer.id != timerEngine.timers.last?.id {
+                    if timer.id != rows.last?.id {
                         Divider().padding(.leading, 18)
                     }
                 }
             }
         }
         .frame(maxHeight: 340)
+        .onHover { hovering in
+            isPointerOverList = hovering
+            if hovering {
+                pendingSettle?.cancel()
+            } else {
+                scheduleSettle()
+            }
+        }
+        .onDisappear { isPointerOverList = false }
+    }
+
+    private func scheduleSettle() {
+        pendingSettle?.cancel()
+        let settle = DispatchWorkItem {
+            guard !isPointerOverList else { return }
+            settleOrder()
+        }
+        pendingSettle = settle
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + TimerListOrderPolicy.settleDelay,
+            execute: settle
+        )
+    }
+
+    private func settleOrder() {
+        pendingSettle?.cancel()
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.3)) {
+            heldOrder = timerEngine.timers.map(\.id)
+        }
     }
 
     private var footer: some View {
