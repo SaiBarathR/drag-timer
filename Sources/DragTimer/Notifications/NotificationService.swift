@@ -114,16 +114,6 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         center.add(request) { _ in }
     }
 
-    func deliverImmediately(_ timer: TimerRecord) {
-        guard let center, timer.notify else { return }
-        let request = UNNotificationRequest(
-            identifier: identifier(for: timer.id),
-            content: content(for: timer),
-            trigger: nil
-        )
-        center.add(request) { _ in }
-    }
-
     func remove(timerID: UUID) {
         guard let center else { return }
         center.removePendingNotificationRequests(withIdentifiers: [identifier(for: timerID)])

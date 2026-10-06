@@ -33,7 +33,7 @@ open "dist/Drag Timer.app"
 
 ```
 Sources/DragTimer/
-├── App/            Entry point, app delegate, settings, presets, routines, --self-test checks
+├── App/            Entry point, app delegate, settings, presets, routines
 ├── Audio/          Alert sounds
 ├── Engine/         Timer engine, deadline heap, persistence
 ├── History/        Timer history store and window
@@ -64,7 +64,6 @@ Write commit subjects as a short imperative sentence, as the existing history do
 ```sh
 swift build
 swift test
-swift run DragTimer --self-test
 ```
 
 `swift test` needs the XCTest support that ships with full Xcode; if it reports XCTest as missing, `xcode-select -p` is pointing at Command Line Tools. CI also runs `./Scripts/test-validate-release.sh` and `./Scripts/build-app.sh`, so run those too when you touch release scripts or packaging.

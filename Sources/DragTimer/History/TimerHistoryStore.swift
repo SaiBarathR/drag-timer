@@ -5,12 +5,6 @@ struct TimerHistoryStore {
     var maximumEntries = 500
     var retentionInterval: TimeInterval = 90 * 24 * 60 * 60
 
-    static var defaultStore: TimerHistoryStore {
-        let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = baseURL.appendingPathComponent("DragTimer", isDirectory: true)
-        return TimerHistoryStore(fileURL: directory.appendingPathComponent("history.json"))
-    }
-
     func load(now: Date = Date()) -> [TimerHistoryEntry] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
         do {
@@ -42,12 +36,6 @@ struct TimerHistoryStore {
 
 struct PendingExpiryStore {
     let fileURL: URL
-
-    static var defaultStore: PendingExpiryStore {
-        let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = baseURL.appendingPathComponent("DragTimer", isDirectory: true)
-        return PendingExpiryStore(fileURL: directory.appendingPathComponent("pending-expiries.json"))
-    }
 
     func load() -> [PendingExpiry] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }

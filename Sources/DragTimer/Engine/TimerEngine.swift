@@ -133,29 +133,7 @@ final class TimerEngine: ObservableObject {
             origin: origin,
             parentEventID: parentEventID
         )
-        insert(record, scheduleNotification: true)
-        return record
-    }
-
-    @discardableResult
-    func createTimer(
-        fireDate: Date,
-        options: TimerOptions,
-        origin: TimerOrigin = .drag
-    ) -> TimerRecord {
-        let createdAt = now()
-        let record = TimerRecord(
-            createdAt: createdAt,
-            fireDate: fireDate,
-            options: options,
-            origin: origin
-        )
-        let isPastDue = fireDate <= createdAt
-        insert(record, scheduleNotification: !isPastDue)
-        if isPastDue {
-            notificationService.deliverImmediately(record)
-            processExpiries(at: createdAt)
-        }
+        insert(record)
         return record
     }
 
@@ -295,10 +273,6 @@ final class TimerEngine: ObservableObject {
         audioPlayer.stop()
         activeAlert = nil
         activeAudioExpiryID = nil
-    }
-
-    func stopActiveAlert() {
-        silenceExpiryAudio()
     }
 
     @discardableResult
@@ -443,13 +417,11 @@ final class TimerEngine: ObservableObject {
         rearmScheduler()
     }
 
-    private func insert(_ timer: TimerRecord, scheduleNotification: Bool) {
+    private func insert(_ timer: TimerRecord) {
         heap.insert(timer)
         timers.append(timer)
         sortTimers()
-        if scheduleNotification {
-            notificationService.schedule(timer)
-        }
+        notificationService.schedule(timer)
         persistActiveTimers()
         rearmScheduler()
     }

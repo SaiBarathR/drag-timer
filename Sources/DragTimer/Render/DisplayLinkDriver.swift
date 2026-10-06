@@ -18,7 +18,6 @@ final class DisplayLinkDriver: NSObject {
         guard let screen else { return }
         let link = screen.displayLink(target: self, selector: #selector(displayLinkDidFire(_:)))
         link.add(to: .main, forMode: .common)
-        link.add(to: .main, forMode: .eventTracking)
         displayLink = link
         displayID = Self.displayIdentifier(for: screen)
     }

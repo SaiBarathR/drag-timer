@@ -1,7 +1,6 @@
 import Foundation
 
-/// Existing formatting API retained for compatibility with tests and the drag
-/// overlay. Selection now feeds the richer menu-bar presentation policy.
+/// Countdown text and nearest-deadline selection for the menu bar.
 enum MenuBarCountdown {
     static func earliestRunningTimer(in timers: [TimerRecord]) -> TimerRecord? {
         timers.lazy.filter { !$0.isPaused }.min { lhs, rhs in

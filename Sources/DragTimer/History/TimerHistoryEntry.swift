@@ -51,8 +51,6 @@ struct TimerHistoryEntry: Codable, Identifiable, Equatable {
         origin = timer.resolvedOrigin
         parentEventID = timer.parentEventID
     }
-
-    var actualElapsed: TimeInterval { max(0, endedAt.timeIntervalSince(startedAt)) }
 }
 
 struct PendingExpiry: Codable, Identifiable, Equatable {

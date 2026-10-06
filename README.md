@@ -110,12 +110,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the project layout and contribution w
 
 ## Verify
 
-The XCTest suite and deterministic checks cover whole-minute duration mapping, migration from v1.2.0 settings/timers, expiry resolution and crash recovery, bounded history, rich preset and routine snapshots, parallel routine launches, all menu-bar policies, update parsing/throttling, popover geometry, Stop all behavior, and audio priority.
+The XCTest suite covers whole-minute duration mapping, migration from v1.2.0 settings/timers, expiry resolution and crash recovery, bounded history, rich preset and routine snapshots, parallel routine launches, all menu-bar policies, update parsing/throttling, popover geometry, Stop all behavior, and audio priority.
 
 ```sh
 swift build
 swift test
-swift run DragTimer --self-test
 ```
 
 `swift test` requires the XCTest support included with full Xcode. If `xcode-select` points at Command Line Tools while Xcode is installed in Applications, run it as `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
@@ -142,7 +141,6 @@ To publish version `vX.Y.Z`, first update `CFBundleShortVersionString` and the p
 ./Scripts/test-validate-release.sh
 swift build
 swift test
-swift run DragTimer --self-test
 ./Scripts/build-app.sh
 git tag -a vX.Y.Z -m "Drag Timer X.Y.Z"
 git push origin vX.Y.Z

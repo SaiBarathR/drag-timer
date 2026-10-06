@@ -135,7 +135,7 @@ final class DragGestureController {
         pendingDuration = result.duration
         state = .settling
 
-        if result.shouldHaptic && settings.hapticsEnabled {
+        if result.didSnap && settings.hapticsEnabled {
             performHaptic(.alignment)
         }
 
