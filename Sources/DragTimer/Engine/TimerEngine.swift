@@ -47,7 +47,7 @@ final class TimerEngine: ObservableObject {
         scheduler.setEventHandler { [weak self] in
             self?.processExpiries()
         }
-        scheduler.schedule(wallDeadline: .distantFuture)
+        scheduler.schedule(deadline: .distantFuture)
         scheduler.resume()
 
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -576,14 +576,15 @@ final class TimerEngine: ObservableObject {
 
     private func rearmScheduler() {
         guard let next = heap.peek else {
-            scheduler.schedule(wallDeadline: .distantFuture)
+            scheduler.schedule(deadline: .distantFuture)
             return
         }
         let interval = max(0, next.fireDate.timeIntervalSince(now()))
-        // Fire dates are wall-clock times. A wall deadline keeps counting
-        // through sleep and follows clock changes; an uptime deadline does
-        // neither and relied entirely on the wake notification.
-        scheduler.schedule(wallDeadline: .now() + interval, repeating: .never, leeway: .milliseconds(25))
+        // Deliberately an uptime deadline, which stands still during sleep.
+        // A wall-clock deadline would fire the moment the Mac resumes, ahead
+        // of `handleWake`, and ring a timer that the "fire timers missed
+        // during sleep" setting says to discard.
+        scheduler.schedule(deadline: .now() + interval, repeating: .never, leeway: .milliseconds(25))
     }
 
     private func persistActiveTimers() { logFailure("timers") { try persistence.save(timers) } }
