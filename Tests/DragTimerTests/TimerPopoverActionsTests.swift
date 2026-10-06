@@ -27,6 +27,43 @@ final class TimerPopoverActionsTests: XCTestCase {
         XCTAssertEqual(TimerRowInlineAction.resume.accessibilityLabel, "Resume timer")
     }
 
+    func testListFollowsEngineOrderUntilAnOrderIsHeld() {
+        let timers = [makeTimer("A"), makeTimer("B"), makeTimer("C")]
+
+        XCTAssertEqual(
+            TimerListOrderPolicy.arranged(timers, heldOrder: []).map(\.label),
+            ["A", "B", "C"]
+        )
+    }
+
+    func testPausedRowKeepsItsHeldPositionAfterEngineSortsItLast() {
+        var top = makeTimer("Top")
+        let middle = makeTimer("Middle")
+        let bottom = makeTimer("Bottom")
+        let heldOrder = [top, middle, bottom].map(\.id)
+        top.pausedRemaining = 60
+
+        let arranged = TimerListOrderPolicy.arranged([middle, bottom, top], heldOrder: heldOrder)
+
+        XCTAssertEqual(arranged.map(\.label), ["Top", "Middle", "Bottom"])
+        XCTAssertEqual(arranged.first?.isPaused, true)
+    }
+
+    func testHeldListDropsRemovedTimersAndAppendsNewOnesInEngineOrder() {
+        let kept = makeTimer("Kept")
+        let removed = makeTimer("Removed")
+        let held = makeTimer("Held")
+        let firstNew = makeTimer("First new")
+        let secondNew = makeTimer("Second new")
+
+        let arranged = TimerListOrderPolicy.arranged(
+            [firstNew, held, secondNew, kept],
+            heldOrder: [kept, removed, held].map(\.id)
+        )
+
+        XCTAssertEqual(arranged.map(\.label), ["Kept", "Held", "First new", "Second new"])
+    }
+
     func testStopAllCancelsTimersBeforeDismissingPopover() {
         var calls: [String] = []
         let actions = TimerPopoverActions(
@@ -58,5 +95,14 @@ final class TimerPopoverActionsTests: XCTestCase {
         )
         XCTAssertEqual(captured.map(\.options.label), ["Coffee", "Journal"])
         XCTAssertTrue(captured.allSatisfy { $0.origin == .routine })
+    }
+
+    private func makeTimer(_ label: String) -> TimerRecord {
+        let createdAt = Date(timeIntervalSince1970: 0)
+        return TimerRecord(
+            createdAt: createdAt,
+            fireDate: createdAt.addingTimeInterval(300),
+            options: TimerOptions(label: label)
+        )
     }
 }
