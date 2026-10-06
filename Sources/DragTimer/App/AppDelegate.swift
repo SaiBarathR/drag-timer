@@ -48,7 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenHistory: { [weak self] in self?.showHistory() }
         )
 
-        timerEngine.requestNotificationAuthorization()
+        if settings.isFirstLaunch {
+            // A new menu-bar icon explains nothing by itself; show the
+            // popover once so the drag hint and presets are seen.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.statusItemController?.showPopover()
+            }
+        }
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await self?.updateChecker.checkIfNeeded()

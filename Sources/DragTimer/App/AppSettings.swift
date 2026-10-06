@@ -101,6 +101,10 @@ final class AppSettings: ObservableObject {
     }
 
     private let defaults: UserDefaults
+
+    /// True only for the launch that found no saved settings at all, so an
+    /// update never looks like a first run.
+    let isFirstLaunch: Bool
     private let storageKey = "DragTimer.AppSettings.v1"
 
     @Published var preset: FeelPreset { didSet { persist() } }
@@ -149,6 +153,7 @@ final class AppSettings: ObservableObject {
         self.defaults = defaults
         let stored = defaults.data(forKey: storageKey)
             .flatMap { try? JSONDecoder().decode(StoredSettings.self, from: $0) }
+        isFirstLaunch = defaults.data(forKey: storageKey) == nil
 
         let restoredPreset = stored?.preset ?? .snappy
         preset = restoredPreset

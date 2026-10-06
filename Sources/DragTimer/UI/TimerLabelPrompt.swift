@@ -246,7 +246,10 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
     }
 
     private func positionNearMenuBar() {
-        guard let screen = NSScreen.main else {
+        // The display the pointer is on is where the drag just ended;
+        // `NSScreen.main` is wherever the key window happens to be.
+        let pointer = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main else {
             panel.center()
             return
         }

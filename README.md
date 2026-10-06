@@ -25,7 +25,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Use deterministic Precise or Snappy release behavior, or opt into momentum with the Throwable feel.
 - Drag naturally across built-in and external displays, including mixed Retina and non-Retina setups.
 - Keep timers correct across sleep, wake, and relaunch by storing absolute fire dates.
-- Review 30-day local history and lightweight completion insights, then start any historical timer again.
+- Review 90-day local history and lightweight completion insights, then start any historical timer again.
 - Check GitHub Releases quietly and open a newer release for manual installation; Drag Timer never self-updates.
 - Give timers a color-and-symbol identity and adjust countdown size, contrast, and urgent treatment.
 - Optionally launch at login and choose whether missed timers fire after wake.

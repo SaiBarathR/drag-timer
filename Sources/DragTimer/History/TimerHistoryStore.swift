@@ -2,8 +2,12 @@ import Foundation
 
 struct TimerHistoryStore {
     let fileURL: URL
+    /// How long history is kept, and therefore how far back the History
+    /// window reaches.
+    static let retentionDays = 90
+
     var maximumEntries = 500
-    var retentionInterval: TimeInterval = 90 * 24 * 60 * 60
+    var retentionInterval = TimeInterval(retentionDays * 24 * 60 * 60)
 
     func load(now: Date = Date()) -> [TimerHistoryEntry] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }

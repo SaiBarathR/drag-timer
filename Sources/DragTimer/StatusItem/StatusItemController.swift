@@ -72,10 +72,6 @@ final class StatusItemController: NSObject {
 
     var contextMenuForTesting: NSMenu { makeContextMenu() }
 
-    func requestPopoverForTesting() {
-        showPopover()
-    }
-
     func refreshCountdownForTesting(at date: Date) {
         refreshCountdown(at: date)
     }
@@ -247,7 +243,7 @@ final class StatusItemController: NSObject {
         RunLoop.main.add(ticker, forMode: .common)
     }
 
-    @objc private func showPopover() {
+    @objc func showPopover() {
         guard let statusView else { return }
         onPopoverRequested(statusView, statusView.popoverAnchorRect)
     }

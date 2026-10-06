@@ -27,6 +27,15 @@ final class AppSettingsMigrationTests: XCTestCase {
         XCTAssertEqual(secondLoad.quickStartMinutes, [30, 5, 30])
     }
 
+    func testOnlyTheLaunchWithNoSavedSettingsIsAFirstLaunch() {
+        let suite = "DragTimerFirstLaunchTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertTrue(AppSettings(defaults: defaults).isFirstLaunch)
+        XCTAssertFalse(AppSettings(defaults: defaults).isFirstLaunch)
+    }
+
     func testMissingAdditiveFieldsKeepSettingsBlobDecodable() throws {
         let fixture = makeDefaults()
         defer { fixture.cleanup() }

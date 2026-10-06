@@ -57,13 +57,17 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         }
     }
 
-    func requestAuthorization() {
+    /// `completion` runs on the main queue with whether permission was granted.
+    func requestAuthorization(completion: ((Bool) -> Void)? = nil) {
         guard let center else {
             permissionState = .unavailable
             return
         }
-        center.requestAuthorization(options: [.alert, .badge, .sound]) { [weak self] _, _ in
+        center.requestAuthorization(options: [.alert, .badge, .sound]) { [weak self] granted, _ in
             self?.refreshAuthorizationStatus()
+            if let completion {
+                DispatchQueue.main.async { completion(granted) }
+            }
         }
     }
 
