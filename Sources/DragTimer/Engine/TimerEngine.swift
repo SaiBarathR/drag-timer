@@ -1,12 +1,15 @@
 import AppKit
 import Combine
 import Foundation
+import os
 
 final class TimerEngine: ObservableObject {
     @Published private(set) var timers: [TimerRecord] = []
     @Published private(set) var pendingExpiries: [PendingExpiry] = []
     @Published private(set) var historyEntries: [TimerHistoryEntry] = []
     @Published private(set) var activeAlert: TimerRecord?
+
+    private static let logger = Logger(subsystem: "com.dragtimer.app", category: "persistence")
 
     private var heap = DeadlineHeap()
     private let persistence: TimerPersistence
@@ -376,7 +379,7 @@ final class TimerEngine: ObservableObject {
         let currentDate = now()
         historyEntries = historyStore.load(now: currentDate)
         pendingExpiries = pendingExpiryStore.load()
-        let restoredTimers = (try? persistence.load()) ?? []
+        let restoredTimers = persistence.loadSalvagingReadableTimers()
 
         // A crash can leave a terminal timer in timers.json after its pending
         // event was safely persisted. Terminal source IDs must never re-enter
@@ -608,9 +611,17 @@ final class TimerEngine: ObservableObject {
         scheduler.schedule(deadline: .now() + interval, repeating: .never, leeway: .milliseconds(25))
     }
 
-    private func persistActiveTimers() { try? persistence.save(timers) }
-    private func persistHistory() { try? historyStore.save(historyEntries, now: now()) }
-    private func persistPendingExpiries() { try? pendingExpiryStore.save(pendingExpiries) }
+    private func persistActiveTimers() { logFailure("timers") { try persistence.save(timers) } }
+    private func persistHistory() { logFailure("history") { try historyStore.save(historyEntries, now: now()) } }
+    private func persistPendingExpiries() { logFailure("pending expiries") { try pendingExpiryStore.save(pendingExpiries) } }
+
+    private func logFailure(_ store: String, _ save: () throws -> Void) {
+        do {
+            try save()
+        } catch {
+            Self.logger.error("Could not save \(store, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
 
     private func sortTimers() {
         timers.sort { lhs, rhs in

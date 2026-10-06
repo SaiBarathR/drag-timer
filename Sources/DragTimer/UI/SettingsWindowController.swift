@@ -314,6 +314,7 @@ private struct PresetsSettingsView: View {
             }
         }
         .padding(4)
+        .onChange(of: settings.quickStartPresets.count) { limitMessage = nil }
         .sheet(item: $editingPreset) { preset in
             PresetEditorView(preset: preset) { saved in
                 if settings.quickStartPresets.contains(where: { $0.id == saved.id }) {
@@ -888,7 +889,7 @@ private struct FeelSettingsView: View {
                     ))
                     Toggle("Tick while passing a snap", isOn: $settings.snapDuringDrag)
                     Toggle("Use trackpad haptics", isOn: $settings.hapticsEnabled)
-                    slider("Snap range", value: physicsBinding(\.snapTolerance), range: 8...60)
+                    slider("Snap range", value: physicsBinding(\.snapTolerance), range: 8...DragPhysicsSettings.snapToleranceRange.upperBound)
                 }
                 Button("Restore Snappy drag defaults") { settings.applyPreset(.snappy) }
             }
