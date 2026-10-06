@@ -25,6 +25,99 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testAddTimeExtendsRunningTimerAndKeepsItsPlannedDuration() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(
+            duration: 3_600,
+            options: TimerOptions(label: "Focus", snoozeMinutes: 5)
+        )
+        fixture.clock.date.addTimeInterval(1_200)
+
+        fixture.engine.addTime(id: timer.id)
+
+        let extended = fixture.engine.timers.first
+        XCTAssertEqual(extended?.remaining(at: fixture.clock.date), 2_700)
+        XCTAssertEqual(extended?.resetDuration, 3_600)
+        fixture.clock.date.addTimeInterval(2_699)
+        fixture.engine.processExpiries()
+        XCTAssertTrue(fixture.engine.pendingExpiries.isEmpty)
+        fixture.clock.date.addTimeInterval(1)
+        fixture.engine.processExpiries()
+        XCTAssertEqual(fixture.engine.pendingExpiries.first?.timer.id, timer.id)
+    }
+
+    @MainActor
+    func testAddTimeKeepsPausedTimerPaused() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(
+            duration: 600,
+            options: TimerOptions(label: "Tea", snoozeMinutes: 2)
+        )
+        fixture.engine.pause(id: timer.id)
+
+        fixture.engine.addTime(id: timer.id)
+
+        XCTAssertEqual(fixture.engine.timers.first?.isPaused, true)
+        XCTAssertEqual(fixture.engine.timers.first?.pausedRemaining, 720)
+    }
+
+    @MainActor
+    func testRenameAndDiscardActOnTheRunningTimerWithoutHistory() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Timer"))
+        fixture.clock.date.addTimeInterval(20)
+
+        fixture.engine.rename(id: timer.id, to: "Tea")
+
+        XCTAssertEqual(fixture.engine.timers.first?.label, "Tea")
+        XCTAssertEqual(fixture.engine.timers.first?.resetDuration, 300)
+        XCTAssertEqual(fixture.engine.timers.first?.fireDate, timer.fireDate)
+
+        fixture.engine.discard(id: timer.id)
+
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+        XCTAssertTrue(fixture.engine.historyEntries.isEmpty)
+    }
+
+    @MainActor
+    func testRenameReachesATimerThatExpiredMeanwhile() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Timer"))
+        fixture.clock.date.addTimeInterval(61)
+        fixture.engine.processExpiries()
+
+        fixture.engine.rename(id: timer.id, to: "Tea")
+
+        let expiry = fixture.engine.pendingExpiries.first
+        XCTAssertEqual(expiry?.timer.label, "Tea")
+        XCTAssertEqual(fixture.engine.historyEntries.first?.label, "Tea")
+        XCTAssertEqual(fixture.engine.restartExpiry(id: expiry!.id)?.label, "Tea")
+    }
+
+    @MainActor
+    func testDiscardDismissesATimerThatExpiredMeanwhile() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(
+            duration: 60,
+            options: TimerOptions(label: "Timer", loop: true)
+        )
+        fixture.clock.date.addTimeInterval(61)
+        fixture.engine.processExpiries()
+        XCTAssertNotNil(fixture.engine.activeAlert)
+
+        fixture.engine.discard(id: timer.id)
+
+        XCTAssertTrue(fixture.engine.pendingExpiries.isEmpty)
+        XCTAssertNil(fixture.engine.activeAlert)
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+    }
+
+    @MainActor
     func testMarkDoneCompletesRunningTimerWithoutAlertOrExpiryCard() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 11_000))

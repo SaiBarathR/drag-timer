@@ -183,18 +183,32 @@ final class TimerEngine: ObservableObject {
         endActiveTimer(id: id, outcome: .completed, resolution: .markDone)
     }
 
+    /// Removes an active timer as if it had never been created: no history
+    /// entry. Used when a just-dragged timer is discarded from its name prompt.
+    /// A timer that already rang while the prompt was open is dismissed like
+    /// Mark done instead, so its card and sound do not outlive the discard.
+    func discard(id: UUID) {
+        if let expiry = pendingExpiries.first(where: { $0.timer.id == id }) {
+            markExpiryDone(id: expiry.id)
+        } else {
+            endActiveTimer(id: id, outcome: nil)
+        }
+    }
+
     private func endActiveTimer(
         id: UUID,
-        outcome: TimerHistoryOutcome,
+        outcome: TimerHistoryOutcome?,
         resolution: ExpiryResolution? = nil
     ) {
         guard let timer = timers.first(where: { $0.id == id }) else { return }
-        appendHistory(TimerHistoryEntry(
-            timer: timer,
-            endedAt: now(),
-            outcome: outcome,
-            resolution: resolution
-        ))
+        if let outcome {
+            appendHistory(TimerHistoryEntry(
+                timer: timer,
+                endedAt: now(),
+                outcome: outcome,
+                resolution: resolution
+            ))
+        }
         heap.remove(id: id)
         timers.removeAll { $0.id == id }
         notificationService.remove(timerID: id)
@@ -203,15 +217,36 @@ final class TimerEngine: ObservableObject {
         rearmScheduler()
     }
 
-    /// Moves an active timer to its snooze duration without ending its current
-    /// lifecycle. Expiry-card snooze uses `snoozeExpiry(id:)` instead.
-    func snooze(id: UUID) {
+    /// Pushes an active timer back by its snooze length. The planned duration
+    /// is untouched, so Reset still returns to what was originally set, and a
+    /// paused timer stays paused. Expiry-card snooze uses `snoozeExpiry(id:)`.
+    func addTime(id: UUID) {
         guard var timer = timers.first(where: { $0.id == id }) else { return }
-        let duration = TimeInterval(timer.snoozeMinutes * 60)
-        timer.originalDuration = duration
-        timer.pausedRemaining = nil
-        timer.fireDate = now().addingTimeInterval(duration)
+        let extra = TimeInterval(timer.snoozeMinutes * 60)
+        if let remaining = timer.pausedRemaining {
+            timer.pausedRemaining = remaining + extra
+        } else {
+            timer.fireDate = timer.fireDate.addingTimeInterval(extra)
+        }
         update(timer)
+    }
+
+    /// Also reaches a timer that expired meanwhile, so its expiry card, its
+    /// history entry and any snooze or restart child carry the new name.
+    func rename(id: UUID, to label: String) {
+        if var timer = timers.first(where: { $0.id == id }) {
+            timer.label = label
+            update(timer)
+            return
+        }
+        guard let expiryIndex = pendingExpiries.firstIndex(where: { $0.timer.id == id }) else { return }
+        pendingExpiries[expiryIndex].timer.label = label
+        if let historyIndex = historyEntries.firstIndex(where: { $0.id == pendingExpiries[expiryIndex].id }) {
+            historyEntries[historyIndex].label = label
+            historyEntries[historyIndex].optionsSnapshot.label = label
+        }
+        persistPendingExpiries()
+        persistHistory()
     }
 
     func pause(id: UUID) {

@@ -187,30 +187,27 @@ final class DragGestureController {
             finish()
             return
         }
+        // The timer starts at release with the default name, so time spent in
+        // the prompt never shortens it; the prompt only renames or discards.
         let shouldAskForLabel = settings.askForLabelAfterDrag
-        let targetFireDate = Date().addingTimeInterval(duration.rounded())
-
-        guard shouldAskForLabel else {
-            finish()
-            timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
-            return
-        }
-
-        finish(as: .prompting)
+        finish(as: shouldAskForLabel ? .prompting : .idle)
+        let timer = timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
+        guard shouldAskForLabel else { return }
 
         // Finish dispatching the release gesture before presenting a key window
-        // so keyboard focus and the Cancel shortcut work reliably.
+        // so keyboard focus and the Escape shortcut work reliably.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let label = TimerLabelPrompt.requestLabel(
-                targetFireDate: targetFireDate
+            let outcome = TimerLabelPrompt.requestLabel(
+                targetFireDate: timer.fireDate,
+                currentLabel: timer.label
             )
             self.state = .idle
-            guard let label else { return }
-            self.timerEngine.createTimer(
-                fireDate: targetFireDate,
-                options: self.settings.defaultOptions(label: label)
-            )
+            switch outcome {
+            case let .renamed(label): self.timerEngine.rename(id: timer.id, to: label)
+            case .keptName: break
+            case .discarded: self.timerEngine.discard(id: timer.id)
+            }
         }
     }
 
