@@ -185,8 +185,14 @@ final class TimerEngine: ObservableObject {
 
     /// Removes an active timer as if it had never been created: no history
     /// entry. Used when a just-dragged timer is discarded from its name prompt.
+    /// A timer that already rang while the prompt was open is dismissed like
+    /// Mark done instead, so its card and sound do not outlive the discard.
     func discard(id: UUID) {
-        endActiveTimer(id: id, outcome: nil)
+        if let expiry = pendingExpiries.first(where: { $0.timer.id == id }) {
+            markExpiryDone(id: expiry.id)
+        } else {
+            endActiveTimer(id: id, outcome: nil)
+        }
     }
 
     private func endActiveTimer(
@@ -225,10 +231,22 @@ final class TimerEngine: ObservableObject {
         update(timer)
     }
 
+    /// Also reaches a timer that expired meanwhile, so its expiry card, its
+    /// history entry and any snooze or restart child carry the new name.
     func rename(id: UUID, to label: String) {
-        guard var timer = timers.first(where: { $0.id == id }) else { return }
-        timer.label = label
-        update(timer)
+        if var timer = timers.first(where: { $0.id == id }) {
+            timer.label = label
+            update(timer)
+            return
+        }
+        guard let expiryIndex = pendingExpiries.firstIndex(where: { $0.timer.id == id }) else { return }
+        pendingExpiries[expiryIndex].timer.label = label
+        if let historyIndex = historyEntries.firstIndex(where: { $0.id == pendingExpiries[expiryIndex].id }) {
+            historyEntries[historyIndex].label = label
+            historyEntries[historyIndex].optionsSnapshot.label = label
+        }
+        persistPendingExpiries()
+        persistHistory()
     }
 
     func pause(id: UUID) {

@@ -83,6 +83,41 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testRenameReachesATimerThatExpiredMeanwhile() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Timer"))
+        fixture.clock.date.addTimeInterval(61)
+        fixture.engine.processExpiries()
+
+        fixture.engine.rename(id: timer.id, to: "Tea")
+
+        let expiry = fixture.engine.pendingExpiries.first
+        XCTAssertEqual(expiry?.timer.label, "Tea")
+        XCTAssertEqual(fixture.engine.historyEntries.first?.label, "Tea")
+        XCTAssertEqual(fixture.engine.restartExpiry(id: expiry!.id)?.label, "Tea")
+    }
+
+    @MainActor
+    func testDiscardDismissesATimerThatExpiredMeanwhile() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(
+            duration: 60,
+            options: TimerOptions(label: "Timer", loop: true)
+        )
+        fixture.clock.date.addTimeInterval(61)
+        fixture.engine.processExpiries()
+        XCTAssertNotNil(fixture.engine.activeAlert)
+
+        fixture.engine.discard(id: timer.id)
+
+        XCTAssertTrue(fixture.engine.pendingExpiries.isEmpty)
+        XCTAssertNil(fixture.engine.activeAlert)
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+    }
+
+    @MainActor
     func testMarkDoneCompletesRunningTimerWithoutAlertOrExpiryCard() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 11_000))
