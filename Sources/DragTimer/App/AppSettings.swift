@@ -242,14 +242,7 @@ final class AppSettings: ObservableObject {
 
     /// Compatibility helper for callers and tests from the v1 preset UI.
     func setQuickStartMinutes(_ minutes: [Int]) {
-        let alert = PresetAlertOptions(
-            soundName: defaultSoundName,
-            volume: defaultVolume,
-            loop: defaultLoop,
-            notify: defaultNotificationsEnabled,
-            snoozeMinutes: defaultSnoozeMinutes
-        )
-        quickStartPresets = Self.presets(from: minutes, alert: alert)
+        quickStartPresets = Self.presets(from: minutes, alert: PresetAlertOptions(defaultOptions()))
         persist()
     }
 
