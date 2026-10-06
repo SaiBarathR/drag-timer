@@ -68,13 +68,22 @@ enum TimerListOrderPolicy {
             uniquingKeysWith: { first, _ in first }
         )
         return timers.enumerated().sorted { lhs, rhs in
-            switch (heldIndex[lhs.element.id], heldIndex[rhs.element.id]) {
-            case let (left?, right?): return left < right
-            case (_?, nil): return true
-            case (nil, _?): return false
-            case (nil, nil): return lhs.offset < rhs.offset
-            }
+            (heldIndex[lhs.element.id] ?? .max, lhs.offset) < (heldIndex[rhs.element.id] ?? .max, rhs.offset)
         }.map(\.element)
+    }
+
+    enum Settle: Equatable {
+        case hold
+        case afterDelay
+        case immediately
+    }
+
+    /// What a change in the engine's timer ids does to the held order. A new
+    /// timer lands in its sorted place right away; a row that was only acted
+    /// on waits, in case the pointer is on its way back.
+    static func settle(from previous: [UUID], to current: [UUID], isPointerOverList: Bool) -> Settle {
+        if isPointerOverList { return .hold }
+        return Set(current).isSubset(of: previous) ? .afterDelay : .immediately
     }
 }
 
@@ -325,13 +334,14 @@ private struct TimerListView: View {
             pendingSettle?.cancel()
         }
         .onChange(of: timerEngine.timers.map(\.id)) { previous, current in
-            guard !isPointerOverList else { return }
-            // A new timer lands in its sorted place right away; a row that
-            // was only acted on waits, in case the pointer is on its way back.
-            if Set(current).isSubset(of: previous) {
-                scheduleSettle()
-            } else {
-                settleOrder()
+            switch TimerListOrderPolicy.settle(
+                from: previous,
+                to: current,
+                isPointerOverList: isPointerOverList
+            ) {
+            case .hold: break
+            case .afterDelay: scheduleSettle()
+            case .immediately: settleOrder()
             }
         }
         // The hosting controller outlives the popover, so the ticker keeps

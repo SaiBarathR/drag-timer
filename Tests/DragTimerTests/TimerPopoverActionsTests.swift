@@ -64,6 +64,41 @@ final class TimerPopoverActionsTests: XCTestCase {
         XCTAssertEqual(arranged.map(\.label), ["Kept", "Held", "First new", "Second new"])
     }
 
+    func testPointerOverListHoldsTheOrderThroughEveryChange() {
+        let first = UUID(), second = UUID(), added = UUID()
+
+        XCTAssertEqual(
+            TimerListOrderPolicy.settle(from: [first, second], to: [second, first], isPointerOverList: true),
+            .hold
+        )
+        XCTAssertEqual(
+            TimerListOrderPolicy.settle(from: [first, second], to: [added, first, second], isPointerOverList: true),
+            .hold
+        )
+    }
+
+    func testReorderedOrRemovedRowsSettleAfterTheDelayOncePointerIsAway() {
+        let first = UUID(), second = UUID()
+
+        XCTAssertEqual(
+            TimerListOrderPolicy.settle(from: [first, second], to: [second, first], isPointerOverList: false),
+            .afterDelay
+        )
+        XCTAssertEqual(
+            TimerListOrderPolicy.settle(from: [first, second], to: [second], isPointerOverList: false),
+            .afterDelay
+        )
+    }
+
+    func testNewTimerSettlesImmediatelyOncePointerIsAway() {
+        let first = UUID(), second = UUID(), added = UUID()
+
+        XCTAssertEqual(
+            TimerListOrderPolicy.settle(from: [first, second], to: [added, second, first], isPointerOverList: false),
+            .immediately
+        )
+    }
+
     func testStopAllCancelsTimersBeforeDismissingPopover() {
         var calls: [String] = []
         let actions = TimerPopoverActions(
