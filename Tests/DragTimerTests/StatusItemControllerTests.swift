@@ -119,6 +119,32 @@ final class StatusItemControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testContextMenuReachesTimersHistorySettingsAndQuit() {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        var calls: [String] = []
+        let controller = StatusItemController(
+            timerEngine: fixture.engine,
+            settings: fixture.settings,
+            onPopoverRequested: { _, _ in calls.append("timers") },
+            onOpenSettings: { calls.append("settings") },
+            onOpenHistory: { calls.append("history") }
+        )
+
+        let menu = controller.contextMenuForTesting
+        let items = menu.items.filter { !$0.isSeparatorItem }
+
+        XCTAssertEqual(items.map(\.title), ["Show Timers", "Timer History", "Settings…", "Quit Drag Timer"])
+        for item in items.dropLast() {
+            NSApp.sendAction(item.action!, to: item.target, from: item)
+        }
+        XCTAssertEqual(calls, ["timers", "history", "settings"])
+        XCTAssertEqual(items.last?.action, #selector(NSApplication.terminate(_:)))
+        XCTAssertTrue(items.last?.target === NSApp)
+    }
+
+    @MainActor
     func testCountdownFormatBoundaryShrinksWidthAndRefreshesAnchor() {
         _ = NSApplication.shared
         let fixture = makeFixture()

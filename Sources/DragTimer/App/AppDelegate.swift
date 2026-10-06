@@ -43,7 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onPopoverAnchorChanged: { [weak popoverController] view, positioningRect in
                 popoverController?.updatePositioningRect(positioningRect, relativeTo: view)
-            }
+            },
+            onOpenSettings: { [weak self] in self?.showSettings() },
+            onOpenHistory: { [weak self] in self?.showHistory() }
         )
 
         timerEngine.requestNotificationAuthorization()
