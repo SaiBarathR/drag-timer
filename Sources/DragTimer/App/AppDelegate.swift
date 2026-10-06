@@ -19,8 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyWindowController: HistoryWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
-
         let popoverController = TimerPopoverController(
             timerEngine: timerEngine,
             settings: settings,

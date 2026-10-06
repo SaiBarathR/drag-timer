@@ -25,14 +25,6 @@ final class TimerPopoverPresentationTests: XCTestCase {
         XCTAssertEqual(activeSize.width, 346, accuracy: 1)
         XCTAssertEqual(activeSize.width, controller.currentFittingContentSize.width, accuracy: 0.5)
         XCTAssertEqual(activeSize.height, controller.currentFittingContentSize.height, accuracy: 0.5)
-        XCTAssertEqual(TimerPopoverGeometry.minimumContentHeight, 349)
-        XCTAssertEqual(
-            TimerPopoverGeometry.minimumContentHeight,
-            ceil(
-                TimerPopoverGeometry.previousMinimumContentHeight
-                    * TimerPopoverGeometry.minimumHeightMultiplier
-            )
-        )
         XCTAssertGreaterThanOrEqual(emptySize.height, TimerPopoverGeometry.minimumContentHeight)
         XCTAssertGreaterThanOrEqual(activeSize.height, TimerPopoverGeometry.minimumContentHeight)
 

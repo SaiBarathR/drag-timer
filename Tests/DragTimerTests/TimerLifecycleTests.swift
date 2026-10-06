@@ -118,6 +118,29 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testResetReturnsRunningAndPausedTimersToTheirPlannedDuration() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 120, options: TimerOptions(label: "Reset"))
+        fixture.clock.date.addTimeInterval(45)
+
+        fixture.engine.reset(id: timer.id)
+
+        XCTAssertEqual(fixture.engine.timers.first?.remaining(at: fixture.clock.date), 120)
+        XCTAssertEqual(fixture.engine.timers.first?.isPaused, false)
+
+        fixture.clock.date.addTimeInterval(30)
+        fixture.engine.pause(id: timer.id)
+        XCTAssertEqual(fixture.engine.timers.first?.pausedRemaining, 90)
+
+        fixture.engine.reset(id: timer.id)
+
+        XCTAssertEqual(fixture.engine.timers.first?.pausedRemaining, 120)
+        fixture.engine.resume(id: timer.id)
+        XCTAssertEqual(fixture.engine.timers.first?.remaining(at: fixture.clock.date), 120)
+    }
+
+    @MainActor
     func testMarkDoneCompletesRunningTimerWithoutAlertOrExpiryCard() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 11_000))
@@ -142,7 +165,7 @@ final class TimerLifecycleTests: XCTestCase {
         XCTAssertEqual(entry?.outcome, .completed)
         XCTAssertEqual(entry?.resolution, .markDone)
         XCTAssertEqual(entry?.plannedDuration, 25 * 60)
-        XCTAssertEqual(entry?.actualElapsed, 10 * 60)
+        XCTAssertEqual(entry.map { $0.endedAt.timeIntervalSince($0.startedAt) }, 10 * 60)
         XCTAssertEqual(TimerHistoryInsights.calculate(entries: engine.historyEntries).completedCount, 1)
 
         // The finished timer must not fire at its original deadline.

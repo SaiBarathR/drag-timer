@@ -2,24 +2,6 @@ import AppKit
 import SwiftUI
 import Combine
 
-struct TimerPopoverActions {
-    let cancelAll: () -> Void
-    let dismissPopover: () -> Void
-
-    func stopAll() {
-        cancelAll()
-        dismissPopover()
-    }
-}
-
-struct RoutineLaunchAction {
-    let createTimers: ([TimerTemplate]) -> Void
-
-    func start(_ routine: TimerRoutine) {
-        createTimers(routine.timerTemplates)
-    }
-}
-
 enum TimerRowInlineAction: Hashable {
     case delete
     case reset
@@ -88,12 +70,7 @@ enum TimerListOrderPolicy {
 }
 
 enum TimerPopoverGeometry {
-    /// The measured one-row fitting height before introducing a minimum.
-    static let previousMinimumContentHeight: CGFloat = 199
-    static let minimumHeightMultiplier: CGFloat = 1.75
-    static let minimumContentHeight = ceil(
-        previousMinimumContentHeight * minimumHeightMultiplier
-    )
+    static let minimumContentHeight: CGFloat = 349
 }
 
 final class TimerPopoverController: NSObject, NSPopoverDelegate {
@@ -106,10 +83,6 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private weak var anchorView: NSView?
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
-    private lazy var actions = TimerPopoverActions(
-        cancelAll: { [weak self] in self?.timerEngine.cancelAll() },
-        dismissPopover: { [weak self] in self?.popover.performClose(nil) }
-    )
 
     init(
         timerEngine: TimerEngine,
@@ -142,7 +115,8 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                     self?.openHistory()
                 },
                 onStopAll: { [weak self] in
-                    self?.actions.stopAll()
+                    self?.timerEngine.cancelAll()
+                    self?.popover.performClose(nil)
                 }
             )
         )
@@ -216,9 +190,9 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         popover.contentSize = fittingSize
     }
 
-    /// A custom status-item view owns its own mouse tracking loop, which means
-    /// NSPopover's transient behavior is not enough to observe every outside
-    /// click. Keep an explicit local and global monitor while the popover is up.
+    /// The popover is anchored to a custom status-item view, where NSPopover's
+    /// transient behavior does not observe every outside click. Keep an
+    /// explicit local and global monitor while the popover is up.
     private func startOutsideClickMonitoring() {
         stopOutsideClickMonitoring()
 
@@ -413,9 +387,7 @@ private struct TimerListView: View {
                 HStack(spacing: 7) {
                     ForEach(settings.routines) { routine in
                         Button {
-                            RoutineLaunchAction { templates in
-                                timerEngine.createTimers(templates: templates)
-                            }.start(routine)
+                            timerEngine.createTimers(templates: routine.timerTemplates)
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "square.stack.3d.up.fill")

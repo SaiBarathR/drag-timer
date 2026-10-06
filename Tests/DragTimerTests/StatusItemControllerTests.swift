@@ -130,11 +130,10 @@ final class StatusItemControllerTests: XCTestCase {
             onPopoverRequested: { _, _ in },
             onPopoverAnchorChanged: { _, _ in anchorChangeCount += 1 }
         )
-        let start = Date()
-        fixture.engine.createTimer(
-            fireDate: start.addingTimeInterval(601),
+        let start = fixture.engine.createTimer(
+            duration: 601,
             options: TimerOptions(label: "Boundary")
-        )
+        ).createdAt
         controller.refreshCountdownForTesting(at: start)
         let fiveDigitWidth = controller.currentWidth
         let changesBeforeBoundary = anchorChangeCount

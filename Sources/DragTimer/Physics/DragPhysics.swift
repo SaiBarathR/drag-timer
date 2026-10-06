@@ -151,10 +151,6 @@ enum DurationLadder {
         }
         return position
     }
-
-    static func index(for duration: TimeInterval) -> Int {
-        Int(position(for: duration))
-    }
 }
 
 struct DurationMapper {
@@ -263,7 +259,6 @@ struct DragRulerLayout {
 struct DragReleaseResult: Equatable {
     let duration: TimeInterval
     let didSnap: Bool
-    let shouldHaptic: Bool
 }
 
 struct DragPhysics {
@@ -390,8 +385,7 @@ struct DragPhysics {
         guard phase == .dragging else {
             return DragReleaseResult(
                 duration: displayDuration,
-                didSnap: activeSnap != nil,
-                shouldHaptic: false
+                didSnap: false
             )
         }
 
@@ -433,8 +427,7 @@ struct DragPhysics {
 
         return DragReleaseResult(
             duration: finalDuration,
-            didSnap: snap != nil,
-            shouldHaptic: snap != nil
+            didSnap: snap != nil
         )
     }
 

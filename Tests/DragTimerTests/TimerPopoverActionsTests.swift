@@ -99,19 +99,7 @@ final class TimerPopoverActionsTests: XCTestCase {
         )
     }
 
-    func testStopAllCancelsTimersBeforeDismissingPopover() {
-        var calls: [String] = []
-        let actions = TimerPopoverActions(
-            cancelAll: { calls.append("cancel") },
-            dismissPopover: { calls.append("dismiss") }
-        )
-
-        actions.stopAll()
-
-        XCTAssertEqual(calls, ["cancel", "dismiss"])
-    }
-
-    func testRoutineLaunchForwardsOrderedSnapshotsAsRoutineTemplates() {
+    func testRoutineTemplatesKeepOrderedSnapshotsAndRoutineOrigin() {
         let routine = TimerRoutine(
             name: "Morning",
             timers: [
@@ -119,10 +107,7 @@ final class TimerPopoverActionsTests: XCTestCase {
                 RoutineTimerDefinition(duration: 15 * 60, options: TimerOptions(label: "Journal"))
             ]
         )
-        var captured: [TimerTemplate] = []
-        let action = RoutineLaunchAction { captured = $0 }
-
-        action.start(routine)
+        let captured = routine.timerTemplates
 
         XCTAssertEqual(
             captured.map(\.duration),

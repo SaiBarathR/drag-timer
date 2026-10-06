@@ -14,6 +14,7 @@ final class StatusItemController: NSObject {
     private var countdownTicker: Timer?
     private var isPopoverVisible = false
     private var inputDiagnosticsMonitor: Any?
+    fileprivate static let inputDiagnosticsEnabled = CommandLine.arguments.contains("--input-diagnostics")
 
     init(
         timerEngine: TimerEngine,
@@ -107,7 +108,7 @@ final class StatusItemController: NSObject {
         // so AppKit can dispatch drags without a nested event-tracking loop.
         statusItem.view = view
         statusView = view
-        if CommandLine.arguments.contains("--input-diagnostics") {
+        if StatusItemController.inputDiagnosticsEnabled {
             inputDiagnosticsMonitor = NSEvent.addLocalMonitorForEvents(
                 matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
             ) { [weak view] event in
@@ -430,7 +431,7 @@ private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
         let windowPoint = recognizer.location(in: nil)
         let pointer = window?.convertPoint(toScreen: windowPoint) ?? NSEvent.mouseLocation
         let timestamp = ProcessInfo.processInfo.systemUptime
-        if CommandLine.arguments.contains("--input-diagnostics") {
+        if StatusItemController.inputDiagnosticsEnabled {
             NSLog("INPUT pan state=%ld pointer=%@ origin=%@", recognizer.state.rawValue,
                   NSStringFromPoint(pointer), NSStringFromPoint(screenCenter))
         }
@@ -452,7 +453,7 @@ private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
     }
 
     @objc private func handleClick(_ recognizer: NSClickGestureRecognizer) {
-        if CommandLine.arguments.contains("--input-diagnostics") {
+        if StatusItemController.inputDiagnosticsEnabled {
             NSLog("INPUT click state=%ld buttons=%lu", recognizer.state.rawValue, NSEvent.pressedMouseButtons)
         }
         guard recognizer.state == .ended else { return }
@@ -468,7 +469,6 @@ private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
             }
             pointerTicker = ticker
             RunLoop.main.add(ticker, forMode: .common)
-            RunLoop.main.add(ticker, forMode: .eventTracking)
         } else {
             onClick?()
         }
@@ -484,7 +484,7 @@ private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
             stopPhysicalTracking()
         }
         for action in actions {
-            if CommandLine.arguments.contains("--input-diagnostics") {
+            if StatusItemController.inputDiagnosticsEnabled {
                 if case .drag = action {} else { NSLog("INPUT physical %@", String(describing: action)) }
             }
             switch action {

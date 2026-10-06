@@ -34,14 +34,10 @@ struct ReleaseVersion: Comparable, Equatable {
 struct GitHubRelease: Decodable, Equatable {
     let tagName: String
     let htmlURL: URL
-    let name: String?
-    let publishedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
         case htmlURL = "html_url"
-        case name
-        case publishedAt = "published_at"
     }
 
     var trustedURL: URL? {
@@ -143,9 +139,7 @@ final class UpdateChecker: ObservableObject {
             let (data, response) = try await transport.data(for: request)
             guard response.statusCode == 200 else { throw URLError(.badServerResponse) }
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let release = try decoder.decode(GitHubRelease.self, from: data)
+            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
             guard release.trustedURL != nil,
                   let latestVersion = ReleaseVersion(release.tagName) else {
                 throw URLError(.cannotParseResponse)
@@ -186,7 +180,7 @@ final class UpdateChecker: ObservableObject {
               version > currentVersion,
               let rawURL = settings.cachedUpdateURLString,
               let url = URL(string: rawURL) else { return nil }
-        let release = GitHubRelease(tagName: tag, htmlURL: url, name: nil, publishedAt: nil)
+        let release = GitHubRelease(tagName: tag, htmlURL: url)
         return release.trustedURL == nil ? nil : release
     }
 }

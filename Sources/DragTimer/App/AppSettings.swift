@@ -72,7 +72,6 @@ final class AppSettings: ObservableObject {
     /// All fields remain optional in storage so adding a setting never makes an
     /// existing settings blob undecodable. Runtime properties are normalized.
     private struct StoredSettings: Codable {
-        var version: Int?
         var preset: FeelPreset?
         var physics: DragPhysicsSettings?
         var hapticsEnabled: Bool?
@@ -411,7 +410,6 @@ final class AppSettings: ObservableObject {
 
     private func persist() {
         let stored = StoredSettings(
-            version: 3,
             preset: preset,
             physics: physics,
             hapticsEnabled: hapticsEnabled,

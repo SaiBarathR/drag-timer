@@ -67,9 +67,6 @@ jobs:
       - name: Run unit tests
         run: swift test
 
-      - name: Run deterministic checks
-        run: swift run DragTimer --self-test
-
       - name: Exercise release validator failures
         run: ./Scripts/test-validate-release.sh
 

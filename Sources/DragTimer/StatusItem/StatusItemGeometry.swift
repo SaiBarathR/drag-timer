@@ -9,7 +9,6 @@ enum StatusItemGeometry {
     static let iconLeading: CGFloat = 6
     static let textLeading: CGFloat = 26
     static let textTrailing: CGFloat = 7
-    static let countdownFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
 
     static func countdownFont(for scale: CountdownScale) -> NSFont {
         let weight: NSFont.Weight
