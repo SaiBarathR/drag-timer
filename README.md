@@ -14,7 +14,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Choose whether the menu bar shows the nearest deadline, active count, a pinned timer, or a progress ring.
 - Create labeled, colored, reorderable Quick start presets with their own sound and notification behavior.
 - Save named routines such as Pomodoro or Morning routine and launch all of their timers together.
-- Pause, resume, reset, edit, snooze, cancel, or mark timers done early from the menu-bar popover.
+- Pause, resume, reset, edit, add time to, cancel, or mark timers done early from the menu-bar popover.
 - Snooze, restart, silence, or mark a finished timer done without losing other simultaneous expiries.
 - Stop every active timer at once.
 - Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
@@ -53,7 +53,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - Click the menu-bar icon to open the timer list. Clicking anywhere outside the popover closes it.
 - Press and drag away from the icon. The floating label moves through a fixed ladder—every minute to 15 minutes, every 5 minutes to 1 hour, every 15 minutes to 4 hours, then every 30 minutes—and shows the exact trigger time in real time.
 - Precise and Snappy start exactly the duration shown at release. Throwable adds momentum while the pointer is moving, then smoothly settles back to the stable preview when you pause.
-- Release to name and start the timer; this prompt can be disabled in Preferences. The name field wraps and takes several lines: Return starts the timer and Shift-Return adds a line. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
+- Release to start the timer. A prompt then offers to name it; this prompt can be disabled in Preferences. The name field wraps and takes several lines: Return saves the name, Shift-Return adds a line, Escape keeps the timer under its default name, and **Discard Timer** removes it. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
 - Open the `…` menu beside a timer to pin it to the menu bar or edit its label, identity, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
 - Click a routine in the compact Routines strip to start every timer snapshot in that routine at once. The launched timers remain independently controllable.

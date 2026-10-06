@@ -530,7 +530,7 @@ private struct TimerListView: View {
                                 : timerEngine.pause(id: timer.id)
                         },
                         onReset: { timerEngine.reset(id: timer.id) },
-                        onSnooze: { timerEngine.snooze(id: timer.id) },
+                        onAddTime: { timerEngine.addTime(id: timer.id) },
                         onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
@@ -701,7 +701,7 @@ private struct TimerRow: View {
     let onPin: () -> Void
     let onPauseResume: () -> Void
     let onReset: () -> Void
-    let onSnooze: () -> Void
+    let onAddTime: () -> Void
     let onDone: () -> Void
     let onCancel: () -> Void
 
@@ -764,7 +764,7 @@ private struct TimerRow: View {
                     Button("Edit timer", action: onEdit)
                     Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
                     Button("Reset timer", action: onReset)
-                    Button("Snooze \(timer.snoozeMinutes) min", action: onSnooze)
+                    Button("Add \(timer.snoozeMinutes) min", action: onAddTime)
                     Divider()
                     Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)

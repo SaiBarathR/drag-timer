@@ -1,23 +1,35 @@
 import AppKit
 
+enum TimerLabelPromptOutcome: Equatable {
+    case renamed(String)
+    /// Dismissed, or confirmed with a blank name: the timer keeps running
+    /// under the name it already has.
+    case keptName
+    case discarded
+}
+
 enum TimerLabelPrompt {
-    static func requestLabel(targetFireDate: Date) -> String? {
-        let controller = TimerLabelPromptController(targetFireDate: targetFireDate)
+    static func requestLabel(targetFireDate: Date, currentLabel: String) -> TimerLabelPromptOutcome {
+        let controller = TimerLabelPromptController(
+            targetFireDate: targetFireDate,
+            currentLabel: currentLabel
+        )
         return controller.run()
     }
 }
 
 enum TimerLabelPromptKeyAction: Equatable {
-    case startTimer
+    case saveName
     case insertLineBreak
-    case cancel
+    case keepName
     case focusNext
     case focusPrevious
 }
 
 enum TimerLabelPromptKeyPolicy {
-    /// Return still starts the timer, as it did in the single-line field, so
-    /// drag, type, Return stays one motion. Shift-Return adds a line;
+    /// Return saves the name, as it did in the single-line field, so drag,
+    /// type, Return stays one motion. Escape leaves the already-running timer
+    /// alone. Shift-Return adds a line;
     /// Option-Return already arrives as `insertNewlineIgnoringFieldEditor(_:)`,
     /// which the text view handles itself.
     static func action(
@@ -26,9 +38,9 @@ enum TimerLabelPromptKeyPolicy {
     ) -> TimerLabelPromptKeyAction? {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            return modifiers.contains(.shift) ? .insertLineBreak : .startTimer
+            return modifiers.contains(.shift) ? .insertLineBreak : .saveName
         case #selector(NSResponder.cancelOperation(_:)):
-            return .cancel
+            return .keepName
         case #selector(NSResponder.insertTab(_:)):
             return .focusNext
         case #selector(NSResponder.insertBacktab(_:)):
@@ -47,12 +59,13 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
     private let targetFireDate: Date
     private let detailLabel = NSTextField(labelWithString: "")
     private let labelView: PlaceholderTextView
-    private var accepted = false
+    private let discardButton = NSButton(title: "Discard Timer", target: nil, action: nil)
+    private var outcome: TimerLabelPromptOutcome = .keptName
 
-    init(targetFireDate: Date) {
+    init(targetFireDate: Date, currentLabel: String = "Timer") {
         self.targetFireDate = targetFireDate
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth + 48, height: 246),
+            contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth + 48, height: 264),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -85,7 +98,7 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
         detailLabel.textColor = .secondaryLabelColor
         refreshDetailText()
 
-        labelView.placeholder = "What is this timer for?"
+        labelView.placeholder = currentLabel
         labelView.font = .systemFont(ofSize: 14)
         labelView.isRichText = false
         labelView.allowsUndo = true
@@ -107,19 +120,26 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
         labelScrollView.autohidesScrollers = true
         labelScrollView.documentView = labelView
 
-        let hintLabel = NSTextField(labelWithString: "Return starts the timer · Shift-Return adds a line")
+        let hintLabel = NSTextField(wrappingLabelWithString:
+            "Return saves the name · Shift-Return adds a line\nEsc keeps the timer as \u{201C}\(currentLabel)\u{201D}")
         hintLabel.font = .systemFont(ofSize: 11)
         hintLabel.textColor = .secondaryLabelColor
+        hintLabel.maximumNumberOfLines = 2
+        hintLabel.lineBreakMode = .byTruncatingTail
 
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
-        cancelButton.keyEquivalent = "\u{1b}"
-        cancelButton.bezelStyle = .rounded
+        discardButton.target = self
+        discardButton.action = #selector(discardTimer)
+        discardButton.keyEquivalent = "\u{8}"
+        discardButton.keyEquivalentModifierMask = .command
+        discardButton.hasDestructiveAction = true
+        discardButton.bezelStyle = .rounded
+        discardButton.toolTip = "Cancel this timer (\u{2318}\u{232B})"
 
-        let startButton = NSButton(title: "Start Timer", target: self, action: #selector(startTimer))
-        startButton.keyEquivalent = "\r"
-        startButton.bezelStyle = .rounded
+        let saveButton = NSButton(title: "Save Name", target: self, action: #selector(saveName))
+        saveButton.keyEquivalent = "\r"
+        saveButton.bezelStyle = .rounded
 
-        let buttonRow = NSStackView(views: [cancelButton, startButton])
+        let buttonRow = NSStackView(views: [discardButton, saveButton])
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 10
         buttonRow.distribution = .fillEqually
@@ -145,14 +165,15 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
             labelScrollView.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             labelScrollView.heightAnchor.constraint(equalToConstant: Self.labelEditorHeight),
             buttonRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-            cancelButton.heightAnchor.constraint(equalToConstant: 30),
-            startButton.heightAnchor.constraint(equalToConstant: 30)
+            hintLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            discardButton.heightAnchor.constraint(equalToConstant: 30),
+            saveButton.heightAnchor.constraint(equalToConstant: 30)
         ])
-        panel.defaultButtonCell = startButton.cell as? NSButtonCell
+        panel.defaultButtonCell = saveButton.cell as? NSButtonCell
         panel.initialFirstResponder = labelView
     }
 
-    func run() -> String? {
+    func run() -> TimerLabelPromptOutcome {
         positionNearMenuBar()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
@@ -175,22 +196,20 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
         detailTimer.invalidate()
         panel.orderOut(nil)
 
-        guard accepted else { return nil }
-        let trimmedLabel = labelView.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedLabel.isEmpty ? "Timer" : trimmedLabel
+        return outcome
     }
 
     func windowWillClose(_ notification: Notification) {
-        accepted = false
+        outcome = .keptName
         NSApp.abortModal()
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         let modifiers = NSApp.currentEvent?.modifierFlags ?? []
         switch TimerLabelPromptKeyPolicy.action(for: commandSelector, modifiers: modifiers) {
-        case .startTimer: startTimer()
+        case .saveName: saveName()
         case .insertLineBreak: textView.insertNewlineIgnoringFieldEditor(nil)
-        case .cancel: cancel()
+        case .keepName: keepName()
         case .focusNext: panel.selectNextKeyView(nil)
         case .focusPrevious: panel.selectPreviousKeyView(nil)
         case nil: return false
@@ -200,23 +219,30 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
 
     #if DEBUG
     var labelTextViewForTesting: NSTextView { labelView }
+    var discardButtonForTesting: NSButton { discardButton }
     var isLabelEditorFirstResponderForTesting: Bool { panel.firstResponder === labelView }
     #endif
 
-    @objc private func startTimer() {
-        accepted = true
+    @objc private func saveName() {
+        let trimmedLabel = labelView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        outcome = trimmedLabel.isEmpty ? .keptName : .renamed(trimmedLabel)
         NSApp.stopModal()
     }
 
-    @objc private func cancel() {
-        accepted = false
+    private func keepName() {
+        outcome = .keptName
+        NSApp.abortModal()
+    }
+
+    @objc private func discardTimer() {
+        outcome = .discarded
         NSApp.abortModal()
     }
 
     private func refreshDetailText() {
         let remaining = max(0, targetFireDate.timeIntervalSinceNow)
         detailLabel.stringValue =
-            "Starts in \(DurationText.compact(remaining)) at \(TimerDateText.fireTime(for: targetFireDate))."
+            "Running · rings at \(TimerDateText.fireTime(for: targetFireDate)), \(DurationText.compact(remaining)) left"
     }
 
     private func positionNearMenuBar() {

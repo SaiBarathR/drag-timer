@@ -183,18 +183,26 @@ final class TimerEngine: ObservableObject {
         endActiveTimer(id: id, outcome: .completed, resolution: .markDone)
     }
 
+    /// Removes an active timer as if it had never been created: no history
+    /// entry. Used when a just-dragged timer is discarded from its name prompt.
+    func discard(id: UUID) {
+        endActiveTimer(id: id, outcome: nil)
+    }
+
     private func endActiveTimer(
         id: UUID,
-        outcome: TimerHistoryOutcome,
+        outcome: TimerHistoryOutcome?,
         resolution: ExpiryResolution? = nil
     ) {
         guard let timer = timers.first(where: { $0.id == id }) else { return }
-        appendHistory(TimerHistoryEntry(
-            timer: timer,
-            endedAt: now(),
-            outcome: outcome,
-            resolution: resolution
-        ))
+        if let outcome {
+            appendHistory(TimerHistoryEntry(
+                timer: timer,
+                endedAt: now(),
+                outcome: outcome,
+                resolution: resolution
+            ))
+        }
         heap.remove(id: id)
         timers.removeAll { $0.id == id }
         notificationService.remove(timerID: id)
@@ -203,14 +211,23 @@ final class TimerEngine: ObservableObject {
         rearmScheduler()
     }
 
-    /// Moves an active timer to its snooze duration without ending its current
-    /// lifecycle. Expiry-card snooze uses `snoozeExpiry(id:)` instead.
-    func snooze(id: UUID) {
+    /// Pushes an active timer back by its snooze length. The planned duration
+    /// is untouched, so Reset still returns to what was originally set, and a
+    /// paused timer stays paused. Expiry-card snooze uses `snoozeExpiry(id:)`.
+    func addTime(id: UUID) {
         guard var timer = timers.first(where: { $0.id == id }) else { return }
-        let duration = TimeInterval(timer.snoozeMinutes * 60)
-        timer.originalDuration = duration
-        timer.pausedRemaining = nil
-        timer.fireDate = now().addingTimeInterval(duration)
+        let extra = TimeInterval(timer.snoozeMinutes * 60)
+        if let remaining = timer.pausedRemaining {
+            timer.pausedRemaining = remaining + extra
+        } else {
+            timer.fireDate = timer.fireDate.addingTimeInterval(extra)
+        }
+        update(timer)
+    }
+
+    func rename(id: UUID, to label: String) {
+        guard var timer = timers.first(where: { $0.id == id }) else { return }
+        timer.label = label
         update(timer)
     }
 
