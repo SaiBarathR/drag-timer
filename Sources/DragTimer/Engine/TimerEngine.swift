@@ -385,6 +385,9 @@ final class TimerEngine: ObservableObject {
         pendingExpiries.removeAll { resolvedPendingIDs.contains($0.id) }
         sortPendingExpiries()
 
+        if !timers.isEmpty {
+            requestNotificationAuthorizationOnce()
+        }
         for timer in timers where !timer.isPaused {
             heap.insert(timer)
             if timer.fireDate > currentDate {
@@ -409,20 +412,6 @@ final class TimerEngine: ObservableObject {
     }
 
     private func insert(_ records: [TimerRecord]) {
-        // Asked when the first timer is started rather than at launch, so the
-        // system prompt arrives when its purpose is obvious. macOS only shows
-        // it while the permission is undetermined.
-        if !didRequestNotificationAuthorization {
-            didRequestNotificationAuthorization = true
-            notificationService.requestAuthorization { [weak self] granted in
-                // Requests added before the user answered were refused, so
-                // the timers that prompted the question need scheduling again.
-                guard granted, let self else { return }
-                for timer in self.timers where !timer.isPaused {
-                    self.notificationService.schedule(timer)
-                }
-            }
-        }
         activate(records)
         persistActiveTimers()
         rearmScheduler()
@@ -432,12 +421,30 @@ final class TimerEngine: ObservableObject {
     /// schedule. Persisting is left to the caller, whose write order matters
     /// for crash recovery.
     private func activate(_ records: [TimerRecord]) {
+        requestNotificationAuthorizationOnce()
         for record in records {
             heap.insert(record)
             timers.append(record)
             notificationService.schedule(record)
         }
         sortTimers()
+    }
+
+    /// Asked when a timer first becomes active (started, snoozed, restarted
+    /// or restored at launch) rather than on every launch, so the system
+    /// prompt arrives when its purpose is obvious. macOS only shows it while
+    /// the permission is undetermined.
+    private func requestNotificationAuthorizationOnce() {
+        guard !didRequestNotificationAuthorization else { return }
+        didRequestNotificationAuthorization = true
+        notificationService.requestAuthorization { [weak self] granted in
+            // Requests added before the user answered were refused, so the
+            // timers that prompted the question need scheduling again.
+            guard granted, let self else { return }
+            for timer in self.timers where !timer.isPaused {
+                self.notificationService.schedule(timer)
+            }
+        }
     }
 
     private func resolveExpiry(id: UUID, as resolution: ExpiryResolution) -> TimerRecord? {

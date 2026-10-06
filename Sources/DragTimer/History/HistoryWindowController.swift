@@ -40,9 +40,11 @@ private struct HistoryView: View {
     @State private var confirmsClear = false
 
     private var recentEntries: [TimerHistoryEntry] {
-        // The engine already trims to the retention window; everything kept
-        // is shown.
-        timerEngine.historyEntries.filter { entry in
+        // The engine trims only when history changes, so an entry can age
+        // past the retention window while the app stays open.
+        let cutoff = retentionCutoff
+        return timerEngine.historyEntries.filter { entry in
+            guard entry.endedAt >= cutoff else { return false }
             switch filter {
             case .all: return entry.outcome != .discarded
             case .completed: return entry.outcome == .completed
@@ -52,8 +54,12 @@ private struct HistoryView: View {
         }
     }
 
+    private var retentionCutoff: Date {
+        Date().addingTimeInterval(-TimeInterval(TimerHistoryStore.retentionDays * 24 * 60 * 60))
+    }
+
     private var insights: TimerHistoryInsights {
-        TimerHistoryInsights.calculate(entries: timerEngine.historyEntries)
+        TimerHistoryInsights.calculate(entries: timerEngine.historyEntries, since: retentionCutoff)
     }
 
     var body: some View {
