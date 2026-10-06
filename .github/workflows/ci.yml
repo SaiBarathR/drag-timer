@@ -10,7 +10,13 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: macos-14
+    # macos-14 is the minimum supported system. The status-item gesture has a
+    # code path specific to newer releases, so the newest runner is tested too.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out source
@@ -20,7 +26,10 @@ jobs:
         run: swift build
 
       - name: Run unit tests
-        run: swift test
+        run: swift test --enable-code-coverage
+
+      - name: Report line coverage
+        run: ./Scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
 
       - name: Test release validator
         run: ./Scripts/test-validate-release.sh

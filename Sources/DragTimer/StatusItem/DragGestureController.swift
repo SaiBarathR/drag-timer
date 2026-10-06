@@ -1,5 +1,52 @@
 import AppKit
 
+protocol DragOverlayPresenting: AnyObject {
+    func show()
+    func hide()
+    func render(
+        originScreen: CGPoint,
+        cursorScreen: CGPoint,
+        duration: TimeInterval,
+        isSnapped: Bool,
+        updateText: Bool
+    )
+}
+
+protocol DragFrameDriving: AnyObject {
+    var onFrame: ((TimeInterval, TimeInterval) -> Void)? { get set }
+    var isRunning: Bool { get }
+    func start(on screen: NSScreen?)
+    func retarget(to screen: NSScreen?)
+    func stop()
+}
+
+extension DragOverlayWindowController: DragOverlayPresenting {}
+extension DisplayLinkDriver: DragFrameDriving {}
+
+/// Everything the gesture touches outside its own state machine, so tests can
+/// drive a drag without windows, a display link, a trackpad or a modal panel.
+struct DragGestureEnvironment {
+    var makeOverlay: (DragRulerLayout, CountdownScale, Bool) -> DragOverlayPresenting
+    var makeFrameDriver: () -> DragFrameDriving
+    var performHaptic: (NSHapticFeedbackManager.FeedbackPattern) -> Void
+    var requestLabel: (Date, String) -> TimerLabelPromptOutcome
+
+    static let live = DragGestureEnvironment(
+        makeOverlay: { rulerLayout, countdownScale, highContrast in
+            DragOverlayWindowController(
+                rulerLayout: rulerLayout,
+                countdownScale: countdownScale,
+                highContrast: highContrast
+            )
+        },
+        makeFrameDriver: { DisplayLinkDriver() },
+        // Resolve the performer for every tick so AppKit can target whichever
+        // Force Touch trackpad is currently driving the gesture.
+        performHaptic: { NSHapticFeedbackManager.defaultPerformer.perform($0, performanceTime: .now) },
+        requestLabel: { TimerLabelPrompt.requestLabel(targetFireDate: $0, currentLabel: $1) }
+    )
+}
+
 final class DragGestureController {
     private static let activationDistance = StatusItemPointerSession.activationDistance
 
@@ -12,12 +59,13 @@ final class DragGestureController {
 
     private let timerEngine: TimerEngine
     private let settings: AppSettings
+    private let environment: DragGestureEnvironment
     private var onPopoverRequested: () -> Void
 
     private var state: GestureState = .idle
     private var physics: DragPhysics?
-    private var overlay: DragOverlayWindowController?
-    private var displayLink: DisplayLinkDriver?
+    private var overlay: DragOverlayPresenting?
+    private var displayLink: DragFrameDriving?
     private var origin: CGPoint?
     private var cursor: CGPoint?
     private var didMoveEnough = false
@@ -25,9 +73,15 @@ final class DragGestureController {
     private var lastLabelTimestamp: TimeInterval = 0
     private var lastDetentIndex: Int?
 
-    init(timerEngine: TimerEngine, settings: AppSettings, onPopoverRequested: @escaping () -> Void) {
+    init(
+        timerEngine: TimerEngine,
+        settings: AppSettings,
+        environment: DragGestureEnvironment = .live,
+        onPopoverRequested: @escaping () -> Void
+    ) {
         self.timerEngine = timerEngine
         self.settings = settings
+        self.environment = environment
         self.onPopoverRequested = onPopoverRequested
     }
 
@@ -53,13 +107,13 @@ final class DragGestureController {
         lastLabelTimestamp = 0
         lastDetentIndex = nil
 
-        let overlay = DragOverlayWindowController(
-            rulerLayout: DragRulerLayout(
+        let overlay = environment.makeOverlay(
+            DragRulerLayout(
                 settings: physicsSettings,
                 activationDistance: Self.activationDistance
             ),
-            countdownScale: settings.countdownScale,
-            highContrast: TimerAppearancePolicy.highContrast(settings: settings)
+            settings.countdownScale,
+            TimerAppearancePolicy.highContrast(settings: settings)
         )
         self.overlay = overlay
         overlay.show()
@@ -74,7 +128,7 @@ final class DragGestureController {
             updateText: true
         )
 
-        let displayLink = DisplayLinkDriver()
+        let displayLink = environment.makeFrameDriver()
         displayLink.onFrame = { [weak self] elapsed, timestamp in
             self?.renderFrame(elapsed: elapsed, timestamp: timestamp)
         }
@@ -198,10 +252,7 @@ final class DragGestureController {
         // so keyboard focus and the Escape shortcut work reliably.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let outcome = TimerLabelPrompt.requestLabel(
-                targetFireDate: timer.fireDate,
-                currentLabel: timer.label
-            )
+            let outcome = self.environment.requestLabel(timer.fireDate, timer.label)
             self.state = .idle
             switch outcome {
             case let .renamed(label): self.timerEngine.rename(id: timer.id, to: label)
@@ -281,9 +332,7 @@ final class DragGestureController {
     }
 
     private func performHaptic(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
-        // Resolve the performer for every tick so AppKit can target whichever
-        // Force Touch trackpad is currently driving the gesture.
-        NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
+        environment.performHaptic(pattern)
     }
 
     private func screen(containing point: CGPoint) -> NSScreen? {
