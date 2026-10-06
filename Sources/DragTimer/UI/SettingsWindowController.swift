@@ -118,45 +118,43 @@ private struct GeneralSettingsView: View {
     @State private var launchAtLoginError: String?
 
     var body: some View {
-        ScrollView {
-            Form {
-                Section("Defaults for new timers") {
-                    Toggle("Ask for a label after dragging", isOn: $settings.askForLabelAfterDrag)
-                    TextField("Default name", text: $settings.defaultLabel)
-                    Picker("Sound", selection: $settings.defaultSoundName) {
-                        ForEach(AlertSound.allCases) { Text($0.displayName).tag($0.rawValue) }
-                    }
-                    HStack {
-                        Text("Volume")
-                        Slider(value: $settings.defaultVolume, in: 0...1)
-                        Text("\(Int(settings.defaultVolume * 100))%")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 40, alignment: .trailing)
-                    }
-                    Toggle("Loop sound until stopped", isOn: $settings.defaultLoop)
-                    Toggle("Show a notification", isOn: $settings.defaultNotificationsEnabled)
-                    Stepper(
-                        "Snooze for \(settings.defaultSnoozeMinutes) min",
-                        value: $settings.defaultSnoozeMinutes,
-                        in: 1...60
-                    )
+        Form {
+            Section("Defaults for new timers") {
+                Toggle("Ask for a label after dragging", isOn: $settings.askForLabelAfterDrag)
+                TextField("Default name", text: $settings.defaultLabel)
+                Picker("Sound", selection: $settings.defaultSoundName) {
+                    ForEach(AlertSound.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
-                Section("macOS notification permission") {
-                    NotificationPermissionView(notificationService: notificationService)
+                HStack {
+                    Text("Volume")
+                    Slider(value: $settings.defaultVolume, in: 0...1)
+                    Text("\(Int(settings.defaultVolume * 100))%")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
                 }
-                Section("Timer behavior") {
-                    Toggle("Fire timers missed during sleep", isOn: $settings.firePastDueOnWake)
-                    Toggle("Launch at login", isOn: Binding(
-                        get: { launchAtLoginEnabled },
-                        set: setLaunchAtLogin
-                    ))
-                    if let launchAtLoginError {
-                        Text(launchAtLoginError).font(.caption).foregroundStyle(.secondary)
-                    }
+                Toggle("Loop sound until stopped", isOn: $settings.defaultLoop)
+                Toggle("Show a notification", isOn: $settings.defaultNotificationsEnabled)
+                Stepper(
+                    "Snooze for \(settings.defaultSnoozeMinutes) min",
+                    value: $settings.defaultSnoozeMinutes,
+                    in: 1...60
+                )
+            }
+            Section("macOS notification permission") {
+                NotificationPermissionView(notificationService: notificationService)
+            }
+            Section("Timer behavior") {
+                Toggle("Fire timers missed during sleep", isOn: $settings.firePastDueOnWake)
+                Toggle("Launch at login", isOn: Binding(
+                    get: { launchAtLoginEnabled },
+                    set: setLaunchAtLogin
+                ))
+                if let launchAtLoginError {
+                    Text(launchAtLoginError).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .formStyle(.grouped)
         }
+        .formStyle(.grouped)
         .onAppear {
             launchAtLoginEnabled = LaunchAtLoginService.isEnabled
             notificationService.refreshAuthorizationStatus()
@@ -763,48 +761,91 @@ private struct AppearanceSettingsView: View {
 private struct FeelSettingsView: View {
     @ObservedObject var settings: AppSettings
 
+    private var throwsOnRelease: Bool { settings.physics.inertiaStrength > 0 }
+    private var snapping: Bool { settings.physics.snappingEnabled }
+
     var body: some View {
-        ScrollView {
-            Form {
-                Section("Feel") {
-                    Picker("Preset", selection: Binding(
-                        get: { settings.preset },
-                        set: { settings.applyPreset($0) }
-                    )) {
-                        ForEach(FeelPreset.allCases) { Text($0.displayName).tag($0) }
+        Form {
+            Section("Feel") {
+                Picker("Preset", selection: Binding(
+                    get: { settings.preset },
+                    set: { settings.applyPreset($0) }
+                )) {
+                    ForEach(FeelPreset.choices(current: settings.preset)) {
+                        Text($0.displayName).tag($0)
                     }
-                    Stepper(
-                        "Maximum drag duration: \(settings.maximumDragDurationHours) hr",
-                        value: Binding(
-                            get: { settings.maximumDragDurationHours },
-                            set: settings.setMaximumDragDurationHours
-                        ),
-                        in: AppSettings.maximumDragDurationHoursRange
-                    )
                 }
-                Section("Drag feel") {
-                    slider("Inertia", value: physicsBinding(\.inertiaStrength), range: 0...0.8)
-                    slider("Spring", value: physicsBinding(\.springStiffness), range: 80...260)
-                    Text("The drag ruler itself is fixed: every step costs the same distance, so 5m, 15m, and 1h always live at the same spot.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("Tactile feedback") {
-                    Toggle("Snap to useful intervals", isOn: Binding(
-                        get: { settings.physics.snappingEnabled },
-                        set: { value in settings.updatePhysics { $0.snappingEnabled = value } }
-                    ))
-                    Toggle("Tick while passing a snap", isOn: $settings.snapDuringDrag)
-                    Toggle("Use trackpad haptics", isOn: $settings.hapticsEnabled)
-                    slider("Snap range", value: physicsBinding(\.snapTolerance), range: 8...DragPhysicsSettings.snapToleranceRange.upperBound)
-                }
+                Stepper(
+                    "Maximum drag duration: \(settings.maximumDragDurationHours) hr",
+                    value: Binding(
+                        get: { settings.maximumDragDurationHours },
+                        set: settings.setMaximumDragDurationHours
+                    ),
+                    in: AppSettings.maximumDragDurationHoursRange
+                )
+            }
+            Section("Release") {
+                slider(
+                    "Inertia",
+                    value: physicsBinding(\.inertiaStrength),
+                    range: 0...0.8,
+                    readout: throwsOnRelease
+                        ? String(format: "%.2f", settings.physics.inertiaStrength)
+                        : "Off"
+                )
+                slider(
+                    "Spring",
+                    value: physicsBinding(\.springStiffness),
+                    range: 80...260,
+                    readout: String(Int(settings.physics.springStiffness.rounded()))
+                )
+                .disabled(!throwsOnRelease)
+                Text(throwsOnRelease
+                    ? "A moving release carries past the pointer, then the spring settles it."
+                    : "With inertia off, release starts exactly the duration shown. Spring only shapes a thrown release.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("The drag ruler itself is fixed: every step costs the same distance, so 5m, 15m, and 1h always live at the same spot.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Tactile feedback") {
+                Toggle("Snap to useful intervals", isOn: Binding(
+                    get: { settings.physics.snappingEnabled },
+                    set: { value in settings.updatePhysics { $0.snappingEnabled = value } }
+                ))
+                slider(
+                    "Snap range",
+                    value: physicsBinding(\.snapTolerance),
+                    range: 8...DragPhysicsSettings.snapToleranceRange.upperBound,
+                    readout: "\(Int(settings.physics.snapTolerance.rounded())) sec"
+                )
+                .disabled(!snapping)
+                Toggle("Use trackpad haptics", isOn: $settings.hapticsEnabled)
+                Toggle("Double tick when a snap engages", isOn: $settings.snapDuringDrag)
+                    .disabled(!snapping || !settings.hapticsEnabled)
+            }
+            Section {
                 Button("Restore Snappy drag defaults") { settings.applyPreset(.snappy) }
             }
-            .formStyle(.grouped)
         }
+        .formStyle(.grouped)
     }
 
-    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
-        HStack { Text(title); Slider(value: value, in: range) }
+    private func slider(
+        _ title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        readout: String
+    ) -> some View {
+        HStack {
+            Text(title)
+            Slider(value: value, in: range)
+            Text(readout)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(readout)
     }
 
     private func physicsBinding(_ keyPath: WritableKeyPath<DragPhysicsSettings, Double>) -> Binding<Double> {

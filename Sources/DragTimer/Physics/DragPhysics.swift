@@ -8,6 +8,12 @@ enum FeelPreset: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Custom describes hand-tuned sliders and cannot be picked, so it is
+    /// offered only while it is the current state.
+    static func choices(current: FeelPreset) -> [FeelPreset] {
+        allCases.filter { $0 != .custom || current == .custom }
+    }
+
     var displayName: String {
         switch self {
         case .precise: return "Precise"
