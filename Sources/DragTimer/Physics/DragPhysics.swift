@@ -462,24 +462,22 @@ struct DragPhysics {
     }
 }
 
+/// Text for a length of time that is not counting down. A running countdown
+/// uses `MenuBarCountdown.text` everywhere, so the menu bar and the popover
+/// always show the same digits.
 enum DurationText {
-    /// Cheap, compact formatting for the display-link path. It intentionally avoids
-    /// DateComponentsFormatter, and callers update it at a throttled cadence.
-    static func compact(_ duration: TimeInterval) -> String {
-        let totalSeconds = max(0, Int(duration.rounded()))
-        let hours = totalSeconds / 3_600
-        let minutes = (totalSeconds % 3_600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours > 0 {
-            return String(format: "%dh %02dm", hours, minutes)
+    /// A planned length as it appears in lists and menus: "5 min", "2 hr",
+    /// and "90 min" rather than a mixed form, so it stays short on a button.
+    static func planned(_ duration: TimeInterval) -> String {
+        let minutes = max(1, Int((duration / 60).rounded()))
+        if minutes.isMultiple(of: 60) {
+            return "\(minutes / 60) hr"
         }
-        return String(format: "%dm %02ds", minutes, seconds)
+        return "\(minutes) min"
     }
 
     /// Dragging selects whole minutes, so its preview should not imply that a
-    /// seconds-level value will be committed. Active countdowns continue to
-    /// use `compact` so users can still see them ticking down precisely.
+    /// seconds-level value will be committed.
     static func dragSelection(_ duration: TimeInterval) -> String {
         let totalMinutes = max(0, Int((duration / 60).rounded()))
         let hours = totalMinutes / 60

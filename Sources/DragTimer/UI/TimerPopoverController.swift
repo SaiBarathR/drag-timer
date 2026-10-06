@@ -444,7 +444,7 @@ private struct TimerListView: View {
                 .help("Stop sound")
             }
             HStack(spacing: 7) {
-                Button("Snooze \(expiry.timer.snoozeMinutes)m") {
+                Button("Snooze \(expiry.timer.snoozeMinutes) min") {
                     timerEngine.snoozeExpiry(id: expiry.id)
                 }
                 Button("Restart") {
@@ -628,16 +628,9 @@ private struct TimerListView: View {
         return Array(repeating: GridItem(.flexible(), spacing: 7), count: count)
     }
 
-    private func durationLabel(_ minutes: Int) -> String {
-        if minutes >= 60, minutes.isMultiple(of: 60) {
-            return "\(minutes / 60) hr"
-        }
-        return "\(minutes) min"
-    }
-
     private func quickStartLabel(_ preset: QuickStartPreset) -> String {
-        let minutes = Int((preset.duration / 60).rounded())
-        return preset.label.isEmpty ? durationLabel(minutes) : "\(preset.label) · \(durationLabel(minutes))"
+        let duration = DurationText.planned(preset.duration)
+        return preset.label.isEmpty ? duration : "\(preset.label) · \(duration)"
     }
 
     private func quickStartAccessibilityLabel(_ preset: QuickStartPreset) -> String {
@@ -713,8 +706,8 @@ private struct TimerRow: View {
                         }
                     }
                 Text(timer.isPaused
-                    ? "Paused · \(DurationText.compact(timer.remaining(at: now)))"
-                    : DurationText.compact(timer.remaining(at: now)))
+                    ? "Paused · \(MenuBarCountdown.text(for: timer, at: now))"
+                    : MenuBarCountdown.text(for: timer, at: now))
                     .font(.system(
                         size: 12 * countdownScale.factor,
                         weight: urgent ? .semibold : .regular,
