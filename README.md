@@ -56,6 +56,8 @@ shasum -a 256 -c SHA256SUMS.txt
 - Release to start the timer. A prompt then offers to name it; this prompt can be disabled in Preferences. The name field wraps and takes several lines: Return saves the name, Shift-Return adds a line, Escape keeps the timer under its default name, and **Discard Timer** removes it. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
 - Open the `…` menu beside a timer to pin it to the menu bar or edit its label, identity, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
+- Click **Other length…** under Quick start to type a length such as `7`, `25m`, `1h 30m` or `1:30` and start it with Return.
+- Right-click the menu-bar icon for Timer History, Settings and Quit.
 - Click a routine in the compact Routines strip to start every timer snapshot in that routine at once. The launched timers remain independently controllable.
 - Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
 - Click the checkmark beside a running timer, or choose **Mark done** in the `…` menu, to finish it early. It is recorded in history as completed and never rings.

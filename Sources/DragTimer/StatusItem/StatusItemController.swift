@@ -7,6 +7,8 @@ final class StatusItemController: NSObject {
     private let settings: AppSettings
     private let onPopoverRequested: (NSView, NSRect) -> Void
     private let onPopoverAnchorChanged: (NSView, NSRect) -> Void
+    private let onOpenSettings: () -> Void
+    private let onOpenHistory: () -> Void
     private let gestureController: DragGestureController
     private var statusView: StatusItemCaptureView?
     private var timersCancellable: AnyCancellable?
@@ -20,13 +22,17 @@ final class StatusItemController: NSObject {
         timerEngine: TimerEngine,
         settings: AppSettings,
         onPopoverRequested: @escaping (NSView, NSRect) -> Void,
-        onPopoverAnchorChanged: @escaping (NSView, NSRect) -> Void = { _, _ in }
+        onPopoverAnchorChanged: @escaping (NSView, NSRect) -> Void = { _, _ in },
+        onOpenSettings: @escaping () -> Void = {},
+        onOpenHistory: @escaping () -> Void = {}
     ) {
         statusItem = NSStatusBar.system.statusItem(withLength: StatusItemGeometry.collapsedWidth)
         self.timerEngine = timerEngine
         self.settings = settings
         self.onPopoverRequested = onPopoverRequested
         self.onPopoverAnchorChanged = onPopoverAnchorChanged
+        self.onOpenSettings = onOpenSettings
+        self.onOpenHistory = onOpenHistory
         gestureController = DragGestureController(
             timerEngine: timerEngine,
             settings: settings,
@@ -63,6 +69,8 @@ final class StatusItemController: NSObject {
     var currentWidth: CGFloat { statusItem.length }
     var currentPopoverAnchorRect: NSRect { statusView?.popoverAnchorRect ?? .zero }
 
+    var contextMenuForTesting: NSMenu { makeContextMenu() }
+
     func requestPopoverForTesting() {
         showPopover()
     }
@@ -80,7 +88,7 @@ final class StatusItemController: NSObject {
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.button)
         view.setAccessibilityLabel("Drag Timer")
-        view.setAccessibilityHelp("Drag to set a timer. Click to view timers.")
+        view.setAccessibilityHelp("Drag to set a timer. Click to view timers. Right-click for settings and quit.")
         view.toolTip = "Drag to set a timer. Click to view timers."
         view.onBegin = { [weak self] origin, pointer, timestamp in
             guard let self else { return }
@@ -99,9 +107,11 @@ final class StatusItemController: NSObject {
         view.onClick = { [weak self] in
             self?.showPopover()
         }
-        view.onSecondaryClick = { [weak self] in
-            self?.gestureController.cancel()
-            self?.showPopover()
+        view.onSecondaryClick = { [weak self, weak view] in
+            guard let self, let view else { return }
+            self.gestureController.cancel()
+            // Just below the menu bar, where a status-item menu normally opens.
+            self.makeContextMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: -6), in: view)
         }
 
         // Keep the custom drawing and geometry; gesture recognizers own input
@@ -224,9 +234,30 @@ final class StatusItemController: NSObject {
         }
     }
 
-    private func showPopover() {
+    @objc private func showPopover() {
         guard let statusView else { return }
         onPopoverRequested(statusView, statusView.popoverAnchorRect)
+    }
+
+    @objc private func openSettings() { onOpenSettings() }
+    @objc private func openHistory() { onOpenHistory() }
+
+    private func makeContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        for (title, action) in [
+            ("Show Timers", #selector(showPopover)),
+            ("Timer History", #selector(openHistory)),
+            ("Settings…", #selector(openSettings))
+        ] {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
+        menu.addItem(.separator())
+        menu.addItem(
+            withTitle: "Quit Drag Timer",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: ""
+        ).target = NSApp
+        return menu
     }
 }
 

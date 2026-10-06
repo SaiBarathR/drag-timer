@@ -264,6 +264,9 @@ private struct TimerListView: View {
     @State private var heldOrder: [UUID] = []
     @State private var isPointerOverList = false
     @State private var pendingSettle: DispatchWorkItem?
+    @State private var isEnteringCustomDuration = false
+    @State private var customDuration = ""
+    @FocusState private var customDurationFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -370,10 +373,51 @@ private struct TimerListView: View {
                     .help(quickStartAccessibilityLabel(preset))
                 }
             }
+
+            customDurationEntry
         }
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .padding(.bottom, settings.routines.isEmpty ? 14 : 9)
+    }
+
+    /// Collapsed by default so opening the popover never puts keyboard focus
+    /// in a text field; Return must keep reaching the expiry card.
+    @ViewBuilder
+    private var customDurationEntry: some View {
+        if isEnteringCustomDuration {
+            HStack(spacing: 7) {
+                TextField("25m, 1h 30m, 1:30", text: $customDuration)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .focused($customDurationFocused)
+                    .onSubmit(startCustomDuration)
+                    .onExitCommand { isEnteringCustomDuration = false }
+                    // Focus cannot be requested until the field is in the view tree.
+                    .onAppear { customDurationFocused = true }
+                    .accessibilityLabel("Timer length")
+                Button("Start", action: startCustomDuration)
+                    .controlSize(.small)
+                    .disabled(DurationInput.parse(customDuration) == nil)
+            }
+        } else {
+            Button {
+                isEnteringCustomDuration = true
+            } label: {
+                Label("Other length…", systemImage: "keyboard")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityHint("Type a timer length such as 25m or 1h 30m")
+        }
+    }
+
+    private func startCustomDuration() {
+        guard let duration = DurationInput.parse(customDuration) else { return }
+        timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
+        customDuration = ""
+        isEnteringCustomDuration = false
     }
 
     private var routineLaunchStrip: some View {
@@ -460,7 +504,9 @@ private struct TimerListView: View {
         .padding(.vertical, 11)
         .background(Color.red.opacity(TimerAppearancePolicy.highContrast(settings: settings) ? 0.16 : 0.08))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(expiry.timer.label) finished, 1 of \(timerEngine.pendingExpiries.count)")
+        .accessibilityLabel(timerEngine.pendingExpiries.count > 1
+            ? "\(expiry.timer.label) finished, 1 of \(timerEngine.pendingExpiries.count)"
+            : "\(expiry.timer.label) finished")
     }
 
     private var emptyState: some View {
@@ -558,9 +604,8 @@ private struct TimerListView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text(timerEngine.pendingExpiries.isEmpty
-                    ? "Drag the menu bar icon to start"
-                    : "Finished timer needs action")
+                // The empty state above already explains the drag.
+                Text(timerEngine.pendingExpiries.isEmpty ? "No timers" : "Finished timer needs action")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -573,22 +618,26 @@ private struct TimerListView: View {
             .accessibilityLabel("Open timer history")
             .help("History")
 
-            Button {
-                NSApp.terminate(nil)
-            } label: {
-                Image(systemName: "power")
-                    .font(.system(size: 13, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Quit Drag Timer")
-            .help("Quit Drag Timer")
-
             Button(action: onOpenSettings) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 13, weight: .medium))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open settings")
+            .help("Settings")
+
+            // Quit is one step away rather than a bare icon beside Settings.
+            Menu {
+                Button("Quit Drag Timer") { NSApp.terminate(nil) }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel("More")
+            .help("More")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -693,18 +742,18 @@ private struct TimerRow: View {
             .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(timer.label)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(2)
-                    .help(timer.label)
-                    .overlay(alignment: .trailing) {
-                        if isPinned {
-                            Image(systemName: "pin.fill")
-                                .font(.system(size: 8))
-                                .foregroundStyle(.secondary)
-                                .offset(x: 13)
-                        }
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(timer.label)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(2)
+                        .help(timer.label)
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Pinned to menu bar")
                     }
+                }
                 Text(timer.isPaused
                     ? "Paused · \(MenuBarCountdown.text(for: timer, at: now))"
                     : MenuBarCountdown.text(for: timer, at: now))
@@ -750,7 +799,8 @@ private struct TimerRow: View {
             perform(action)
         } label: {
             Image(systemName: action.symbolName)
-                .frame(width: 20, height: 20)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(action == .delete ? Color.red : Color.primary)
