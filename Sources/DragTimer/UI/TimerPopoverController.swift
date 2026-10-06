@@ -393,6 +393,8 @@ private struct TimerListView: View {
                     .focused($customDurationFocused)
                     .onSubmit(startCustomDuration)
                     .onExitCommand { isEnteringCustomDuration = false }
+                    // Focus cannot be requested until the field is in the view tree.
+                    .onAppear { customDurationFocused = true }
                     .accessibilityLabel("Timer length")
                 Button("Start", action: startCustomDuration)
                     .controlSize(.small)
@@ -401,7 +403,6 @@ private struct TimerListView: View {
         } else {
             Button {
                 isEnteringCustomDuration = true
-                customDurationFocused = true
             } label: {
                 Label("Other length…", systemImage: "keyboard")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
