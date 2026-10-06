@@ -336,11 +336,11 @@ private struct PresetsSettingsView: View {
             Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
             TimerIdentityBead(identity: preset.identity, size: 28)
             VStack(alignment: .leading, spacing: 2) {
-                Text(preset.label.isEmpty ? presetDuration(preset) : preset.label)
+                Text(preset.label.isEmpty ? DurationText.planned(preset.duration) : preset.label)
                     .fontWeight(.medium)
                 Text(preset.label.isEmpty
                     ? alertSummary(preset)
-                    : "\(presetDuration(preset)) · \(alertSummary(preset))")
+                    : "\(DurationText.planned(preset.duration)) · \(alertSummary(preset))")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -383,15 +383,6 @@ private struct PresetsSettingsView: View {
         if preset.alert.loop { values.append("loops") }
         if preset.alert.notify { values.append("notification") }
         return values.joined(separator: ", ")
-    }
-
-    private func presetDuration(_ preset: QuickStartPreset) -> String {
-        let minutes = Int((preset.duration / 60).rounded())
-        if minutes >= 60, minutes.isMultiple(of: 60) {
-            let hours = minutes / 60
-            return "\(hours) hr"
-        }
-        return "\(minutes) min"
     }
 }
 
@@ -612,7 +603,7 @@ private struct RoutineEditorView: View {
                     ? "Timer"
                     : timer.options.label)
                     .fontWeight(.medium)
-                Text(settingsDuration(timer.duration))
+                Text(DurationText.planned(timer.duration))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -641,15 +632,11 @@ private struct RoutineEditorView: View {
     }
 
     private func moveTimer(id: UUID, offset: Int) {
-        guard let source = timers.firstIndex(where: { $0.id == id }) else { return }
-        let destination = min(max(source + offset, 0), timers.count - 1)
-        guard source != destination else { return }
-        let timer = timers.remove(at: source)
-        timers.insert(timer, at: destination)
+        timers.moveElement(id: id, by: offset)
     }
 
     private func presetMenuLabel(_ preset: QuickStartPreset) -> String {
-        let name = preset.label.isEmpty ? settingsDuration(preset.duration) : preset.label
+        let name = preset.label.isEmpty ? DurationText.planned(preset.duration) : preset.label
         return "Copy \(name)"
     }
 
@@ -793,14 +780,6 @@ private struct TimerDefinitionEditorView: View {
         }
         .frame(width: 440)
     }
-}
-
-private func settingsDuration(_ duration: TimeInterval) -> String {
-    let minutes = Int((duration / 60).rounded())
-    if minutes >= 60, minutes.isMultiple(of: 60) {
-        return "\(minutes / 60) hr"
-    }
-    return "\(minutes) min"
 }
 
 private struct MenuBarSettingsView: View {

@@ -242,7 +242,7 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
     private func refreshDetailText() {
         let remaining = max(0, targetFireDate.timeIntervalSinceNow)
         detailLabel.stringValue =
-            "Running · rings at \(TimerDateText.fireTime(for: targetFireDate)), \(DurationText.compact(remaining)) left"
+            "Running · rings at \(TimerDateText.fireTime(for: targetFireDate)), \(MenuBarCountdown.text(forRemaining: remaining)) left"
     }
 
     private func positionNearMenuBar() {

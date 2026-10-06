@@ -96,24 +96,15 @@ final class TimerEngine: ObservableObject {
         guard !templates.isEmpty else { return [] }
         let createdAt = now()
         let records = templates.map { template in
-            let duration = min(max(1, template.duration.rounded()), 24 * 60 * 60)
-            return TimerRecord(
+            TimerRecord(
                 createdAt: createdAt,
-                fireDate: createdAt.addingTimeInterval(duration),
+                fireDate: createdAt.addingTimeInterval(Self.clamped(template.duration)),
                 options: template.options,
                 origin: template.origin,
                 parentEventID: template.parentEventID
             )
         }
-
-        for record in records {
-            heap.insert(record)
-            timers.append(record)
-            notificationService.schedule(record)
-        }
-        sortTimers()
-        persistActiveTimers()
-        rearmScheduler()
+        insert(records)
         return records
     }
 
@@ -125,15 +116,14 @@ final class TimerEngine: ObservableObject {
         parentEventID: UUID? = nil
     ) -> TimerRecord {
         let createdAt = now()
-        let normalizedDuration = min(max(1, duration.rounded()), 24 * 60 * 60)
         let record = TimerRecord(
             createdAt: createdAt,
-            fireDate: createdAt.addingTimeInterval(normalizedDuration),
+            fireDate: createdAt.addingTimeInterval(Self.clamped(duration)),
             options: options,
             origin: origin,
             parentEventID: parentEventID
         )
-        insert(record)
+        insert([record])
         return record
     }
 
@@ -417,13 +407,26 @@ final class TimerEngine: ObservableObject {
         rearmScheduler()
     }
 
-    private func insert(_ timer: TimerRecord) {
-        heap.insert(timer)
-        timers.append(timer)
-        sortTimers()
-        notificationService.schedule(timer)
+    private static func clamped(_ duration: TimeInterval) -> TimeInterval {
+        min(max(1, duration.rounded()), 24 * 60 * 60)
+    }
+
+    private func insert(_ records: [TimerRecord]) {
+        activate(records)
         persistActiveTimers()
         rearmScheduler()
+    }
+
+    /// Puts new timers into the heap, the sorted list and the notification
+    /// schedule. Persisting is left to the caller, whose write order matters
+    /// for crash recovery.
+    private func activate(_ records: [TimerRecord]) {
+        for record in records {
+            heap.insert(record)
+            timers.append(record)
+            notificationService.schedule(record)
+        }
+        sortTimers()
     }
 
     private func resolveExpiry(id: UUID, as resolution: ExpiryResolution) -> TimerRecord? {
@@ -453,10 +456,7 @@ final class TimerEngine: ObservableObject {
                 origin: childOrigin,
                 parentEventID: expiry.id
             )
-            heap.insert(record)
-            timers.append(record)
-            sortTimers()
-            notificationService.schedule(record)
+            activate([record])
             child = record
         }
 

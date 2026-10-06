@@ -285,22 +285,12 @@ final class AppSettings: ObservableObject {
     }
 
     func movePreset(id: UUID, offset: Int) {
-        guard let source = quickStartPresets.firstIndex(where: { $0.id == id }) else { return }
-        let destination = min(max(source + offset, 0), quickStartPresets.count - 1)
-        guard source != destination else { return }
-        let preset = quickStartPresets.remove(at: source)
-        quickStartPresets.insert(preset, at: destination)
+        guard quickStartPresets.moveElement(id: id, by: offset) else { return }
         persist()
     }
 
     func movePresets(fromOffsets: IndexSet, toOffset: Int) {
-        var values = quickStartPresets
-        let moving = fromOffsets.sorted().map { values[$0] }
-        for index in fromOffsets.sorted(by: >) { values.remove(at: index) }
-        let removedBeforeDestination = fromOffsets.filter { $0 < toOffset }.count
-        let destination = min(max(toOffset - removedBeforeDestination, 0), values.count)
-        values.insert(contentsOf: moving, at: destination)
-        quickStartPresets = values
+        quickStartPresets.moveElements(fromOffsets: fromOffsets, toOffset: toOffset)
         persist()
     }
 
@@ -348,22 +338,12 @@ final class AppSettings: ObservableObject {
     }
 
     func moveRoutine(id: UUID, offset: Int) {
-        guard let source = routines.firstIndex(where: { $0.id == id }) else { return }
-        let destination = min(max(source + offset, 0), routines.count - 1)
-        guard source != destination else { return }
-        let routine = routines.remove(at: source)
-        routines.insert(routine, at: destination)
+        guard routines.moveElement(id: id, by: offset) else { return }
         persist()
     }
 
     func moveRoutines(fromOffsets: IndexSet, toOffset: Int) {
-        var values = routines
-        let moving = fromOffsets.sorted().map { values[$0] }
-        for index in fromOffsets.sorted(by: >) { values.remove(at: index) }
-        let removedBeforeDestination = fromOffsets.filter { $0 < toOffset }.count
-        let destination = min(max(toOffset - removedBeforeDestination, 0), values.count)
-        values.insert(contentsOf: moving, at: destination)
-        routines = values
+        routines.moveElements(fromOffsets: fromOffsets, toOffset: toOffset)
         persist()
     }
 
@@ -439,5 +419,30 @@ final class AppSettings: ObservableObject {
         )
         guard let data = try? JSONEncoder().encode(stored) else { return }
         defaults.set(data, forKey: storageKey)
+    }
+}
+
+extension Array where Element: Identifiable {
+    /// Moves one element up or down, stopping at either end. Returns whether
+    /// anything moved.
+    @discardableResult
+    mutating func moveElement(id: Element.ID, by offset: Int) -> Bool {
+        guard let source = firstIndex(where: { $0.id == id }) else { return false }
+        let destination = Swift.min(Swift.max(source + offset, 0), count - 1)
+        guard source != destination else { return false }
+        insert(remove(at: source), at: destination)
+        return true
+    }
+}
+
+extension Array {
+    /// The list-reordering move SwiftUI provides, without importing SwiftUI
+    /// into the settings model.
+    mutating func moveElements(fromOffsets: IndexSet, toOffset: Int) {
+        let moving = fromOffsets.sorted().map { self[$0] }
+        for index in fromOffsets.sorted(by: >) { remove(at: index) }
+        let removedBeforeDestination = fromOffsets.filter { $0 < toOffset }.count
+        let destination = Swift.min(Swift.max(toOffset - removedBeforeDestination, 0), count)
+        insert(contentsOf: moving, at: destination)
     }
 }

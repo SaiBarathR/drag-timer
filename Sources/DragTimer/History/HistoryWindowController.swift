@@ -126,7 +126,7 @@ private struct HistoryView: View {
             insight("Snoozed", value: String(insights.snoozedCount))
             insight(
                 "Average plan",
-                value: insights.averagePlannedDuration.map { DurationText.compact($0) } ?? "—"
+                value: insights.averagePlannedDuration.map { DurationText.planned($0) } ?? "—"
             )
             Spacer()
         }
@@ -150,7 +150,7 @@ private struct HistoryRow: View {
             TimerIdentityBead(identity: entry.identity, size: 28)
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.label).fontWeight(.medium).lineLimit(2).help(entry.label)
-                Text("\(DurationText.compact(entry.plannedDuration)) · \(outcomeText)")
+                Text("\(DurationText.planned(entry.plannedDuration)) · \(outcomeText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

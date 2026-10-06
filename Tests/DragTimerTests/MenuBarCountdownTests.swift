@@ -57,6 +57,20 @@ final class MenuBarCountdownTests: XCTestCase {
         XCTAssertLessThan(StatusItemGeometry.width(for: "10:00"), StatusItemGeometry.width(for: "12h 59m"))
     }
 
+    func testPlannedDurationsUseOneVocabulary() {
+        XCTAssertEqual(DurationText.planned(5 * 60), "5 min")
+        XCTAssertEqual(DurationText.planned(90 * 60), "90 min")
+        XCTAssertEqual(DurationText.planned(2 * 60 * 60), "2 hr")
+        XCTAssertEqual(DurationText.planned(12.5 * 60), "13 min")
+        XCTAssertEqual(DurationText.planned(20), "1 min")
+    }
+
+    func testCountdownNeverReadsZeroBeforeTheTimerFires() {
+        XCTAssertEqual(MenuBarCountdown.text(forRemaining: 0.4), "0:01")
+        XCTAssertEqual(MenuBarCountdown.text(forRemaining: 59.6), "1:00")
+        XCTAssertEqual(MenuBarCountdown.text(forRemaining: 3_599.6), "1h 0m")
+    }
+
     func testMenuBarSymbolIsDrawnInTheRequestedColor() throws {
         let symbol = try XCTUnwrap(StatusItemGeometry.tintedSymbol(named: "flame.fill", color: .red))
         let bitmap = try XCTUnwrap(NSBitmapImageRep(
