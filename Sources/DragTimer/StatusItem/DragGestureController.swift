@@ -249,8 +249,12 @@ final class DragGestureController {
         guard shouldAskForLabel else { return }
 
         // Finish dispatching the release gesture before presenting a key window
-        // so keyboard focus and the Escape shortcut work reliably.
-        DispatchQueue.main.async { [weak self] in
+        // so keyboard focus and the Escape shortcut work reliably. This must
+        // be a run-loop timer, not `DispatchQueue.main.async`: the prompt is
+        // modal, and a modal loop entered from a main-queue block holds that
+        // serial queue until it returns, so the engine could not fire any
+        // timer, including this one, while the prompt was open.
+        let presentPrompt = Timer(timeInterval: 0, repeats: false) { [weak self] _ in
             guard let self else { return }
             let outcome = self.environment.requestLabel(timer.fireDate, timer.label)
             self.state = .idle
@@ -260,6 +264,7 @@ final class DragGestureController {
             case .discarded: self.timerEngine.discard(id: timer.id)
             }
         }
+        RunLoop.main.add(presentPrompt, forMode: .common)
     }
 
     private func finish(as finalState: GestureState = .idle) {

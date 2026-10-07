@@ -171,6 +171,32 @@ final class TimerPopoverPresentationTests: XCTestCase {
         XCTAssertEqual(positioningRect.midX, expectedClockCenterX, accuracy: 0.5)
     }
 
+    /// The typed-length field must not survive a close. Reopened expanded, it
+    /// would take keyboard focus and swallow the Return meant for Mark done.
+    @MainActor
+    func testTypedLengthEntryIsClearedWhenThePopoverCloses() throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = makeController(fixture: fixture)
+        let anchor = makeVisibleAnchorWindow(on: screen)
+        defer { anchor.window?.orderOut(nil) }
+
+        controller.toggle(relativeTo: anchor, positioningRect: anchor.bounds)
+        runMainLoopBriefly()
+        controller.typedLengthForTesting.isOpen = true
+        controller.typedLengthForTesting.text = "25m"
+        runMainLoopBriefly()
+
+        controller.closeForTesting()
+        runMainLoopBriefly()
+
+        XCTAssertFalse(controller.isShownForTesting)
+        XCTAssertFalse(controller.typedLengthForTesting.isOpen)
+        XCTAssertEqual(controller.typedLengthForTesting.text, "")
+    }
+
     @MainActor
     private func makeVisibleAnchorWindow(on screen: NSScreen) -> NSView {
         let anchorSize = NSSize(width: 32, height: 22)

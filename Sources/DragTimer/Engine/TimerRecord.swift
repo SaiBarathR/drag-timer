@@ -160,7 +160,8 @@ struct TimerRecord: Codable, Identifiable, Equatable {
         self.fireDate = fireDate
         self.originalDuration = max(1, fireDate.timeIntervalSince(createdAt))
         self.pausedRemaining = nil
-        self.label = options.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Timer" : options.label
+        let trimmedLabel = options.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.label = trimmedLabel.isEmpty ? "Timer" : trimmedLabel
         self.soundName = AlertSound.normalizedName(options.soundName)
         self.volume = min(max(options.volume, 0), 1)
         self.loop = options.loop

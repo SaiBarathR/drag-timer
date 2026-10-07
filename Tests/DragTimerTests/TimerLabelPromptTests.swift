@@ -85,6 +85,58 @@ final class TimerLabelPromptTests: XCTestCase {
     }
 
     @MainActor
+    func testEscapeKeepsTheTimerEvenWhenAButtonHasFocus() {
+        var controller: TimerLabelPromptController?
+        let outcome = runPrompt(capturing: { controller = $0 }) { textView in
+            guard let panel = textView.window, let button = controller?.discardButtonForTesting else { return }
+            panel.makeFirstResponder(button)
+            panel.sendEvent(Self.keyDown("\u{1b}", keyCode: 53, in: panel))
+        }
+
+        XCTAssertEqual(outcome, .keptName)
+    }
+
+    /// Command-Delete deletes to the start of the line in a text view. As a
+    /// key equivalent on Discard it would be taken before the editor saw it.
+    @MainActor
+    func testCommandDeleteBelongsToTheEditorNotToDiscard() {
+        var controller: TimerLabelPromptController?
+        var claimedByAControl: Bool?
+        let outcome = runPrompt(capturing: { controller = $0 }) { textView in
+            guard let panel = textView.window else { return }
+            textView.insertText("Tea", replacementRange: textView.selectedRange())
+            claimedByAControl = panel.performKeyEquivalent(
+                with: Self.keyDown("\u{7f}", keyCode: 51, modifiers: .command, in: panel)
+            )
+            textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        }
+
+        XCTAssertEqual(controller?.discardButtonForTesting.keyEquivalent, "")
+        XCTAssertEqual(claimedByAControl, false)
+        XCTAssertEqual(outcome, .renamed("Tea"))
+    }
+
+    private static func keyDown(
+        _ characters: String,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags = [],
+        in window: NSWindow
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
+    }
+
+    @MainActor
     func testTabDoesNotTypeIntoLabel() {
         let outcome = runPrompt { textView in
             textView.insertText("Tea", replacementRange: textView.selectedRange())

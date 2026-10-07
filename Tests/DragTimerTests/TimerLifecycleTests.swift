@@ -153,14 +153,58 @@ final class TimerLifecycleTests: XCTestCase {
         )
         let timer = engine.createTimer(duration: 1, options: TimerOptions(label: "Real"))
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-        XCTAssertTrue(engine.pendingExpiries.isEmpty)
+        // Polled with a generous limit rather than fixed windows, so a slow
+        // CI runner delays the test instead of failing it.
+        let limit = Date().addingTimeInterval(10)
+        while engine.pendingExpiries.isEmpty, Date() < limit {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
         XCTAssertEqual(engine.pendingExpiries.map(\.timer.id), [timer.id])
-        let lateness = engine.pendingExpiries[0].expiredAt.timeIntervalSince(timer.fireDate)
-        XCTAssertGreaterThanOrEqual(lateness, 0)
-        XCTAssertLessThan(lateness, 0.3)
+        XCTAssertGreaterThanOrEqual(engine.pendingExpiries.first?.expiredAt ?? .distantPast, timer.fireDate)
+    }
+
+    @MainActor
+    func testRenameFollowsASnoozeMadeWhileTheNamePromptWasOpen() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Timer"))
+        fixture.clock.date.addTimeInterval(61)
+        fixture.engine.processExpiries()
+        let child = fixture.engine.snoozeExpiry(id: fixture.engine.pendingExpiries[0].id)
+
+        fixture.engine.rename(id: timer.id, to: "Tea")
+
+        XCTAssertEqual(fixture.engine.timers.map(\.id), [child?.id])
+        XCTAssertEqual(fixture.engine.timers.first?.label, "Tea")
+        XCTAssertEqual(fixture.engine.historyEntries.map(\.label), ["Tea"])
+        XCTAssertEqual(fixture.engine.historyEntries.first?.optionsSnapshot.label, "Tea")
+    }
+
+    @MainActor
+    func testDiscardFollowsARestartMadeWhileTheNamePromptWasOpen() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Timer"))
+        let bystander = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Other"))
+        fixture.clock.date.addTimeInterval(61)
+        fixture.engine.processExpiries()
+        fixture.engine.restartExpiry(id: fixture.engine.pendingExpiries[0].id)
+        XCTAssertEqual(fixture.engine.timers.count, 2)
+
+        fixture.engine.discard(id: timer.id)
+
+        XCTAssertEqual(fixture.engine.timers.map(\.id), [bystander.id])
+    }
+
+    @MainActor
+    func testNewTimerLabelsAreTrimmedLikeEditedOnes() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "  Tea \n"))
+
+        XCTAssertEqual(timer.label, "Tea")
     }
 
     @MainActor

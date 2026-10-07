@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyWindowController: HistoryWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = EditShortcutsMenu.make()
         let popoverController = TimerPopoverController(
             timerEngine: timerEngine,
             settings: settings,
@@ -52,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // A new menu-bar icon explains nothing by itself; show the
             // popover once so the drag hint and presets are seen.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                self?.statusItemController?.showPopover()
+                self?.statusItemController?.openPopover()
             }
         }
         Task { [weak self] in

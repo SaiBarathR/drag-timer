@@ -73,12 +73,27 @@ enum TimerPopoverGeometry {
     static let minimumContentHeight: CGFloat = 349
 }
 
+/// The "Other length…" entry. It lives outside the SwiftUI view because the
+/// view outlives each presentation of the popover: left expanded, the field
+/// would take keyboard focus on the next open and swallow the Return that is
+/// meant for the expiry card.
+final class TypedLengthEntry: ObservableObject {
+    @Published var isOpen = false
+    @Published var text = ""
+
+    func reset() {
+        isOpen = false
+        text = ""
+    }
+}
+
 final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let timerEngine: TimerEngine
     private let onOpenSettings: () -> Void
     private let onOpenHistory: () -> Void
     private let onPopoverVisibilityChanged: (Bool) -> Void
+    private let typedLength = TypedLengthEntry()
     private var hostingController: NSHostingController<TimerListView>!
     private weak var anchorView: NSView?
     private var localClickMonitor: Any?
@@ -108,6 +123,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                 timerEngine: timerEngine,
                 settings: settings,
                 updateChecker: updateChecker ?? UpdateChecker(settings: settings),
+                typedLength: typedLength,
                 onOpenSettings: { [weak self] in
                     self?.openSettings()
                 },
@@ -147,6 +163,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         stopOutsideClickMonitoring()
         anchorView = nil
+        typedLength.reset()
         onPopoverVisibilityChanged(false)
     }
 
@@ -156,6 +173,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     var currentPositioningRect: NSRect { popover.positioningRect }
     var currentPopoverWindowFrame: NSRect? { hostingController.view.window?.frame }
     var isShownForTesting: Bool { popover.isShown }
+    var typedLengthForTesting: TypedLengthEntry { typedLength }
 
     func prepareForPresentationForTesting() {
         prepareForPresentation()
@@ -254,6 +272,7 @@ private struct TimerListView: View {
     @ObservedObject var timerEngine: TimerEngine
     @ObservedObject var settings: AppSettings
     @ObservedObject var updateChecker: UpdateChecker
+    @ObservedObject var typedLength: TypedLengthEntry
     let onOpenSettings: () -> Void
     let onOpenHistory: () -> Void
     let onStopAll: () -> Void
@@ -262,8 +281,6 @@ private struct TimerListView: View {
     @State private var heldOrder: [UUID] = []
     @State private var isPointerOverList = false
     @State private var pendingSettle: DispatchWorkItem?
-    @State private var isEnteringCustomDuration = false
-    @State private var customDuration = ""
     @FocusState private var customDurationFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -370,24 +387,29 @@ private struct TimerListView: View {
     /// in a text field; Return must keep reaching the expiry card.
     @ViewBuilder
     private var customDurationEntry: some View {
-        if isEnteringCustomDuration {
+        if typedLength.isOpen {
             HStack(spacing: 7) {
-                TextField("25m, 1h 30m, 1:30", text: $customDuration)
+                TextField("25m, 1h 30m, 1:30", text: $typedLength.text)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                     .focused($customDurationFocused)
                     .onSubmit(startCustomDuration)
-                    .onExitCommand { isEnteringCustomDuration = false }
+                    .onExitCommand { typedLength.isOpen = false }
                     // Focus cannot be requested until the field is in the view tree.
                     .onAppear { customDurationFocused = true }
                     .accessibilityLabel("Timer length")
-                Button("Start", action: startCustomDuration)
-                    .controlSize(.small)
-                    .disabled(DurationInput.parse(customDuration) == nil)
+                // Names the length it read, so "1:30" is seen to mean an hour
+                // and a half before the timer starts.
+                Button(
+                    DurationInput.parse(typedLength.text).map { "Start \(DurationText.planned($0))" } ?? "Start",
+                    action: startCustomDuration
+                )
+                .controlSize(.small)
+                .disabled(DurationInput.parse(typedLength.text) == nil)
             }
         } else {
             Button {
-                isEnteringCustomDuration = true
+                typedLength.isOpen = true
             } label: {
                 Label("Other length…", systemImage: "keyboard")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
@@ -399,10 +421,10 @@ private struct TimerListView: View {
     }
 
     private func startCustomDuration() {
-        guard let duration = DurationInput.parse(customDuration) else { return }
+        guard let duration = DurationInput.parse(typedLength.text) else { return }
         timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
-        customDuration = ""
-        isEnteringCustomDuration = false
+        typedLength.text = ""
+        typedLength.isOpen = false
     }
 
     private var routineLaunchStrip: some View {

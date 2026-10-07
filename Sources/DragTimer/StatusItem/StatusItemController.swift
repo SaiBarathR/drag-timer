@@ -15,6 +15,7 @@ final class StatusItemController: NSObject {
     private var settingsCancellable: AnyCancellable?
     private var countdownTicker: Timer?
     private var countdownTickerFireDate: Date?
+    private var clockObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var isPopoverVisible = false
     private var inputDiagnosticsMonitor: Any?
     fileprivate static let inputDiagnosticsEnabled = CommandLine.arguments.contains("--input-diagnostics")
@@ -47,9 +48,11 @@ final class StatusItemController: NSObject {
         configureStatusView()
         observeTimerChanges()
         observeSettingsChanges()
+        observeClockDiscontinuities()
     }
 
     deinit {
+        clockObservers.forEach { $0.center.removeObserver($0.token) }
         if let inputDiagnosticsMonitor { NSEvent.removeMonitor(inputDiagnosticsMonitor) }
         countdownTicker?.invalidate()
         NSStatusBar.system.removeStatusItem(statusItem)
@@ -150,6 +153,23 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// A repeating timer keeps its phase in uptime, which stops during sleep
+    /// and ignores clock changes. After either, the ticker is rebuilt so it
+    /// lands on the countdown's whole seconds again.
+    private func observeClockDiscontinuities() {
+        let sources: [(NotificationCenter, Notification.Name)] = [
+            (NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
+            (NotificationCenter.default, .NSSystemClockDidChange)
+        ]
+        clockObservers = sources.map { center, name in
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.countdownTickerFireDate = nil
+                self?.refreshCountdown()
+            }
+            return (center, token)
+        }
+    }
+
     private func refreshCountdown(at date: Date = Date()) {
         refreshCountdown(using: timerEngine.timers, at: date)
     }
@@ -243,9 +263,17 @@ final class StatusItemController: NSObject {
         RunLoop.main.add(ticker, forMode: .common)
     }
 
+    /// A click on the icon: opens the popover, or closes it if it is open.
     @objc func showPopover() {
         guard let statusView else { return }
         onPopoverRequested(statusView, statusView.popoverAnchorRect)
+    }
+
+    /// For callers that mean "show", such as the context menu and first
+    /// launch: never closes a popover that is already open.
+    @objc func openPopover() {
+        guard !isPopoverVisible else { return }
+        showPopover()
     }
 
     @objc private func openSettings() { onOpenSettings() }
@@ -254,7 +282,7 @@ final class StatusItemController: NSObject {
     private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
         for (title, action) in [
-            ("Show Timers", #selector(showPopover)),
+            ("Show Timers", #selector(openPopover)),
             ("Timer History", #selector(openHistory)),
             ("Settings…", #selector(openSettings))
         ] {

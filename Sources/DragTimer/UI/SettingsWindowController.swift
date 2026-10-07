@@ -666,7 +666,7 @@ private struct TimerDefinitionEditorView: View {
     let onSave: (TimerOptions, TimeInterval) -> Void
 
     @State private var options: TimerOptions
-    @State private var minutes: Int
+    @State private var durationText: String
 
     init(
         title: String,
@@ -679,7 +679,7 @@ private struct TimerDefinitionEditorView: View {
         self.requiresLabel = requiresLabel
         self.onSave = onSave
         _options = State(initialValue: options)
-        _minutes = State(initialValue: DurationFields.clamped(hours: 0, minutes: Int((duration / 60).rounded())))
+        _durationText = State(initialValue: DurationField.text(for: duration))
     }
 
     var body: some View {
@@ -687,7 +687,7 @@ private struct TimerDefinitionEditorView: View {
             Text(title).font(.headline).padding(.top, 20)
             Form {
                 TextField("Label", text: $options.label)
-                DurationFields(minutes: $minutes)
+                DurationField(text: $durationText)
                 TimerOptionFields(options: $options)
             }
             .padding()
@@ -695,11 +695,15 @@ private struct TimerDefinitionEditorView: View {
                 Button("Cancel") { dismiss() }
                 Spacer()
                 Button("Save") {
-                    onSave(options, TimeInterval(minutes * 60))
+                    guard let duration = DurationInput.parse(durationText) else { return }
+                    onSave(options, duration)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(requiresLabel && options.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    DurationInput.parse(durationText) == nil
+                        || (requiresLabel && options.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                )
             }
             .padding()
         }

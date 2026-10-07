@@ -33,51 +33,35 @@ struct TimerOptionFields: View {
     }
 }
 
-/// Hours and minutes typed directly, instead of stepping one minute at a time
-/// toward a two-hour timer.
-struct DurationFields: View {
-    @Binding var minutes: Int
-
-    static let range = 1...(24 * 60)
+/// A length typed as text and read with `DurationInput`, instead of stepping
+/// one minute at a time toward a two-hour timer. A text binding updates on
+/// every keystroke, so Save always sees what is in the field; a formatted
+/// number field commits only on Return or when focus leaves it.
+struct DurationField: View {
+    @Binding var text: String
 
     var body: some View {
         LabeledContent("Duration") {
-            HStack(spacing: 6) {
-                field(value: hours, label: "Hours")
-                Text("hr").foregroundStyle(.secondary)
-                field(value: remainder, label: "Minutes")
-                Text("min").foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                TextField("25m, 1h 30m", text: $text)
+                    .labelsHidden()
+                    .frame(width: 110)
+                    .accessibilityLabel("Duration")
+                if let duration = DurationInput.parse(text) {
+                    Text(DurationText.planned(duration))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Use 25m or 1h 30m")
+                        .foregroundStyle(.red)
+                }
             }
+            .font(.callout)
         }
     }
 
-    private func field(value: Binding<Int>, label: String) -> some View {
-        TextField(label, value: value, format: .number)
-            .labelsHidden()
-            .multilineTextAlignment(.trailing)
-            .frame(width: 44)
-            .accessibilityLabel(label)
-    }
-
-    private var hours: Binding<Int> {
-        Binding(
-            get: { minutes / 60 },
-            set: { minutes = Self.clamped(hours: $0, minutes: minutes % 60) }
-        )
-    }
-
-    private var remainder: Binding<Int> {
-        Binding(
-            get: { minutes % 60 },
-            set: { minutes = Self.clamped(hours: minutes / 60, minutes: $0) }
-        )
-    }
-
-    /// Typing 90 in the minutes field carries into the hours field.
-    static func clamped(hours: Int, minutes: Int) -> Int {
-        // Bound each part first: a pasted 18-digit number must not overflow.
-        let boundedHours = min(max(hours, 0), range.upperBound / 60)
-        let boundedMinutes = min(max(minutes, 0), range.upperBound)
-        return min(max(boundedHours * 60 + boundedMinutes, range.lowerBound), range.upperBound)
+    /// How an existing length is shown for editing, in a form the field
+    /// reads back to the same value.
+    static func text(for duration: TimeInterval) -> String {
+        DurationText.dragSelection(duration)
     }
 }
