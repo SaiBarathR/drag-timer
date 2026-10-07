@@ -23,6 +23,7 @@ final class TimerEngine: ObservableObject {
     private var wakeObserver: NSObjectProtocol?
     private var activeAudioExpiryID: UUID?
     private var didRequestNotificationAuthorization = false
+    private var permissionObservation: AnyCancellable?
 
     init(
         persistence: TimerPersistence,
@@ -66,6 +67,12 @@ final class TimerEngine: ObservableObject {
         notificationService.setActionHandler { [weak self] timerID, action in
             self?.handleNotificationAction(timerID: timerID, action: action)
         }
+        permissionObservation = notificationService.$permissionState
+            .scan((NotificationPermissionState.checking, NotificationPermissionState.checking)) { ($0.1, $1) }
+            .sink { [weak self] previous, current in
+                guard TimerEngine.permissionWasGranted(from: previous, to: current) else { return }
+                self?.rescheduleNotifications()
+            }
     }
 
     deinit {
@@ -156,11 +163,25 @@ final class TimerEngine: ObservableObject {
     /// A timer that already rang while the prompt was open is dismissed like
     /// Mark done instead, so its card and sound do not outlive the discard.
     func discard(id: UUID) {
-        if let expiry = pendingExpiries.first(where: { $0.timer.id == id }) {
+        let current = lineage(of: id).last ?? id
+        if let expiry = pendingExpiries.first(where: { $0.timer.id == current }) {
             markExpiryDone(id: expiry.id)
         } else {
-            endActiveTimer(id: id, outcome: nil)
+            endActiveTimer(id: current, outcome: nil)
         }
+    }
+
+    /// The ids one dragged timer has gone by: its own, then the timer made by
+    /// each snooze or restart of its expiry. The name prompt can still be
+    /// open when that happens, and it only knows the first id.
+    private func lineage(of id: UUID) -> [UUID] {
+        var ids = [id]
+        while ids.count < 32,
+              let child = historyEntries.first(where: { $0.sourceTimerID == ids[ids.count - 1] })?.linkedTimerID,
+              !ids.contains(child) {
+            ids.append(child)
+        }
+        return ids
     }
 
     private func endActiveTimer(
@@ -199,22 +220,26 @@ final class TimerEngine: ObservableObject {
         update(timer)
     }
 
-    /// Also reaches a timer that expired meanwhile, so its expiry card, its
-    /// history entry and any snooze or restart child carry the new name.
+    /// Also reaches a timer that expired meanwhile, and one that was snoozed
+    /// or restarted from that expiry, so the expiry card, the history entries
+    /// and the running successor all carry the new name.
     func rename(id: UUID, to label: String) {
-        if var timer = timers.first(where: { $0.id == id }) {
+        let ids = lineage(of: id)
+        let expiryIndices = pendingExpiries.indices.filter { ids.contains(pendingExpiries[$0].timer.id) }
+        let historyIndices = historyEntries.indices.filter { ids.contains(historyEntries[$0].sourceTimerID) }
+        for index in expiryIndices {
+            pendingExpiries[index].timer.label = label
+        }
+        for index in historyIndices {
+            historyEntries[index].label = label
+            historyEntries[index].optionsSnapshot.label = label
+        }
+        if !expiryIndices.isEmpty { persistPendingExpiries() }
+        if !historyIndices.isEmpty { persistHistory() }
+        if var timer = timers.first(where: { ids.contains($0.id) }) {
             timer.label = label
             update(timer)
-            return
         }
-        guard let expiryIndex = pendingExpiries.firstIndex(where: { $0.timer.id == id }) else { return }
-        pendingExpiries[expiryIndex].timer.label = label
-        if let historyIndex = historyEntries.firstIndex(where: { $0.id == pendingExpiries[expiryIndex].id }) {
-            historyEntries[historyIndex].label = label
-            historyEntries[historyIndex].optionsSnapshot.label = label
-        }
-        persistPendingExpiries()
-        persistHistory()
     }
 
     func pause(id: UUID) {
@@ -437,13 +462,22 @@ final class TimerEngine: ObservableObject {
     private func requestNotificationAuthorizationOnce() {
         guard !didRequestNotificationAuthorization else { return }
         didRequestNotificationAuthorization = true
-        notificationService.requestAuthorization { [weak self] granted in
-            // Requests added before the user answered were refused, so the
-            // timers that prompted the question need scheduling again.
-            guard granted, let self else { return }
-            for timer in self.timers where !timer.isPaused {
-                self.notificationService.schedule(timer)
-            }
+        notificationService.requestAuthorization()
+    }
+
+    /// macOS refuses notification requests made before permission exists, so
+    /// timers started earlier need scheduling again when it is granted,
+    /// whether from the system prompt or later in System Settings.
+    static func permissionWasGranted(
+        from previous: NotificationPermissionState,
+        to current: NotificationPermissionState
+    ) -> Bool {
+        [.notDetermined, .denied].contains(previous) && [.authorized, .provisional].contains(current)
+    }
+
+    private func rescheduleNotifications() {
+        for timer in timers where !timer.isPaused {
+            notificationService.schedule(timer)
         }
     }
 

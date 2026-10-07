@@ -145,6 +145,48 @@ final class DragGestureControllerTests: XCTestCase {
         XCTAssertEqual(fixture.spy.overlays.count, 1)
     }
 
+    /// The engine fires timers from the main dispatch queue. A prompt opened
+    /// from inside a main-queue block would hold that queue for as long as it
+    /// stayed open, and no timer could ring until it was dismissed.
+    func testOpenPromptLeavesTheMainQueueFreeForTimersToFire() {
+        let fixture = makeFixture(askForLabel: true)
+        defer { fixture.cleanup() }
+        fixture.spy.probesMainQueueDuringPrompt = true
+
+        drag(fixture, pulled: [88])
+        fixture.spy.driver?.fireFrame()
+        wait(0.5)
+
+        XCTAssertEqual(fixture.spy.promptRequests.count, 1)
+        XCTAssertEqual(fixture.spy.mainQueueDrainedDuringPrompt, true)
+    }
+
+    /// The same guarantee with the production modal prompt and the engine's
+    /// real scheduler: a timer due while the prompt is open rings on time.
+    @MainActor
+    func testATimerRingsWhileTheRealNamePromptIsOpen() {
+        _ = NSApplication.shared
+        let fixture = makeFixture(askForLabel: true)
+        defer { fixture.cleanup() }
+        fixture.spy.usesRealPrompt = true
+        let due = fixture.engine.createTimer(duration: 1, options: TimerOptions(label: "Due"))
+        var rangWhilePromptWasOpen: Bool?
+        // A run-loop timer keeps firing inside the modal session.
+        let check = Timer(timeInterval: 1.6, repeats: false) { _ in
+            guard NSApp.modalWindow != nil else { return }
+            rangWhilePromptWasOpen = fixture.engine.pendingExpiries.contains { $0.timer.id == due.id }
+            NSApp.abortModal()
+        }
+        RunLoop.main.add(check, forMode: .common)
+        defer { check.invalidate() }
+
+        drag(fixture, pulled: [88])
+        fixture.spy.driver?.fireFrame()
+        wait(2.2)
+
+        XCTAssertEqual(rangWhilePromptWasOpen, true)
+    }
+
     func testPromptDiscardRemovesTheTimerWithoutHistory() {
         let fixture = makeFixture(askForLabel: true)
         defer { fixture.cleanup() }
@@ -240,6 +282,9 @@ final class DragGestureControllerTests: XCTestCase {
         var haptics: [NSHapticFeedbackManager.FeedbackPattern] = []
         var promptRequests: [(fireDate: Date, label: String)] = []
         var promptOutcome: TimerLabelPromptOutcome = .keptName
+        var probesMainQueueDuringPrompt = false
+        var usesRealPrompt = false
+        var mainQueueDrainedDuringPrompt: Bool?
         private let driverStarts: Bool
 
         var overlay: OverlaySpy? { overlays.last }
@@ -262,6 +307,18 @@ final class DragGestureControllerTests: XCTestCase {
                 performHaptic: { [unowned self] in haptics.append($0) },
                 requestLabel: { [unowned self] fireDate, label in
                     promptRequests.append((fireDate, label))
+                    if usesRealPrompt {
+                        return TimerLabelPrompt.requestLabel(targetFireDate: fireDate, currentLabel: label)
+                    }
+                    if probesMainQueueDuringPrompt {
+                        // Stand in for the modal prompt: one nested run-loop
+                        // pass, which returns as soon as the main queue is
+                        // serviced and gives up after 50 ms if it cannot be.
+                        var drained = false
+                        DispatchQueue.main.async { drained = true }
+                        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+                        mainQueueDrainedDuringPrompt = drained
+                    }
                     return promptOutcome
                 }
             )

@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import DragTimer
 
@@ -16,14 +17,20 @@ final class TimerEditorModelTests: XCTestCase {
         XCTAssertEqual(Set(TimerColorToken.allCases.map(\.displayName)).count, TimerColorToken.allCases.count)
     }
 
-    func testDurationFieldsCarryMinutesAndStayWithinOneDay() {
-        XCTAssertEqual(DurationFields.clamped(hours: 2, minutes: 15), 135)
-        XCTAssertEqual(DurationFields.clamped(hours: 0, minutes: 90), 90)
-        XCTAssertEqual(DurationFields.clamped(hours: 0, minutes: 0), 1)
-        XCTAssertEqual(DurationFields.clamped(hours: -3, minutes: -5), 1)
-        XCTAssertEqual(DurationFields.clamped(hours: 30, minutes: 0), 24 * 60)
-        XCTAssertEqual(DurationFields.clamped(hours: .max, minutes: .max), 24 * 60)
-        XCTAssertEqual(DurationFields.clamped(hours: 200_000_000_000_000_000, minutes: 5), 24 * 60)
+    func testDurationFieldShowsALengthItReadsBackUnchanged() {
+        for minutes in [1, 5, 59, 60, 61, 90, 135, 240, 24 * 60] {
+            let duration = TimeInterval(minutes * 60)
+            XCTAssertEqual(DurationInput.parse(DurationField.text(for: duration)), duration, "\(minutes) min")
+        }
+    }
+
+    func testEditShortcutsMenuCarriesTheStandardEditingShortcuts() {
+        let menu = EditShortcutsMenu.make()
+        let edit = menu.items.compactMap(\.submenu).first { $0.title == "Edit" }
+        let shortcuts = edit?.items.filter { !$0.isSeparatorItem }.map { "\($0.title):\($0.keyEquivalent)" }
+
+        XCTAssertEqual(shortcuts, ["Undo:z", "Redo:Z", "Cut:x", "Copy:c", "Paste:v", "Select All:a"])
+        XCTAssertEqual(menu.items.count, 2)
     }
 
     func testApplyingEditedOptionsKeepsTimingAndNormalizesValues() {

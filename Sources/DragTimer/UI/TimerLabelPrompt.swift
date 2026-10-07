@@ -51,11 +51,21 @@ enum TimerLabelPromptKeyPolicy {
     }
 }
 
+/// Escape reaches the label editor only while it has focus. The panel handles
+/// it too, so the prompt can always be dismissed from the keyboard.
+private final class TimerLabelPromptPanel: NSPanel {
+    var onCancel: (() -> Void)?
+
+    override func cancelOperation(_ sender: Any?) {
+        onCancel?()
+    }
+}
+
 final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private static let contentWidth: CGFloat = 342
     private static let labelEditorHeight: CGFloat = 64
 
-    private let panel: NSPanel
+    private let panel: TimerLabelPromptPanel
     private let targetFireDate: Date
     private let detailLabel = NSTextField(labelWithString: "")
     private let labelView: PlaceholderTextView
@@ -64,7 +74,7 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
 
     init(targetFireDate: Date, currentLabel: String = "Timer") {
         self.targetFireDate = targetFireDate
-        panel = NSPanel(
+        panel = TimerLabelPromptPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth + 48, height: 264),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
@@ -87,6 +97,7 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
         panel.animationBehavior = .utilityWindow
         panel.isReleasedWhenClosed = false
         panel.delegate = self
+        panel.onCancel = { [weak self] in self?.keepName() }
         panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
@@ -129,11 +140,11 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
 
         discardButton.target = self
         discardButton.action = #selector(discardTimer)
-        discardButton.keyEquivalent = "\u{8}"
-        discardButton.keyEquivalentModifierMask = .command
+        // No key equivalent: every Delete chord already edits text in the
+        // label editor, and a shortcut here would take it from the editor.
         discardButton.hasDestructiveAction = true
         discardButton.bezelStyle = .rounded
-        discardButton.toolTip = "Cancel this timer (\u{2318}\u{232B})"
+        discardButton.toolTip = "Cancel this timer"
 
         let saveButton = NSButton(title: "Save Name", target: self, action: #selector(saveName))
         saveButton.keyEquivalent = "\r"

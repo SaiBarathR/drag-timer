@@ -140,6 +140,14 @@ final class StatusItemControllerTests: XCTestCase {
             NSApp.sendAction(item.action!, to: item.target, from: item)
         }
         XCTAssertEqual(calls, ["timers", "history", "settings"])
+
+        // Show Timers must not close a popover that is already open.
+        controller.setPopoverVisible(true)
+        NSApp.sendAction(items[0].action!, to: items[0].target, from: items[0])
+        XCTAssertEqual(calls, ["timers", "history", "settings"])
+        controller.showPopover()
+        XCTAssertEqual(calls, ["timers", "history", "settings", "timers"])
+
         XCTAssertEqual(items.last?.action, #selector(NSApplication.terminate(_:)))
         XCTAssertTrue(items.last?.target === NSApp)
     }
