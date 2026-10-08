@@ -403,9 +403,14 @@ private struct TimerListView: View {
                     .accessibilityLabel("Timer length or time of day")
                 // Names what it read, so "1:30" is seen to mean an hour and a
                 // half, and "@4" to mean 4 PM, before the timer starts.
-                Button(customDurationStartTitle, action: startCustomDuration)
-                    .controlSize(.small)
-                    .disabled(DurationInput.parseEntry(typedLength.text) == nil)
+                // Read again each minute: "@3:30pm" means tomorrow once
+                // 3:30 has gone by with the field still open.
+                TimelineView(.everyMinute) { _ in
+                    let entry = DurationInput.parseEntry(typedLength.text)
+                    Button(entry?.startTitle() ?? "Start", action: startCustomDuration)
+                        .controlSize(.small)
+                        .disabled(entry == nil)
+                }
             }
         } else {
             Button {
@@ -420,21 +425,14 @@ private struct TimerListView: View {
         }
     }
 
-    private var customDurationStartTitle: String {
-        switch DurationInput.parseEntry(typedLength.text) {
-        case let .length(duration)?: return "Start \(DurationText.planned(duration))"
-        case let .clockTime(date)?: return "Ring at \(TimerDateText.fireTime(for: date))"
-        case nil: return "Start"
-        }
-    }
-
     private func startCustomDuration() {
         // Read again now: a time of day is further away or nearer than it
         // was when the title was drawn.
         let duration: TimeInterval
         switch DurationInput.parseEntry(typedLength.text) {
         case let .length(length)?: duration = length
-        case let .clockTime(date)?: duration = date.timeIntervalSinceNow
+        // Rounded up, so it never rings before the clock reads that time.
+        case let .clockTime(date)?: duration = date.timeIntervalSinceNow.rounded(.up)
         case nil: return
         }
         timerEngine.createTimer(duration: duration, options: settings.defaultOptions())

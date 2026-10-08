@@ -109,6 +109,48 @@ final class DurationInputTests: XCTestCase {
         XCTAssertEqual(entry("at 11", lateEvening), .clockTime(date(hour: 23, minute: 0)))
     }
 
+    func testATimeThatDoesNotExistWhenTheClocksGoForwardIsNotMovedToOneThatDoes() {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = TimeZone(identifier: "America/New_York")!
+        // 8 March 2026: 2:00 AM to 3:00 AM does not happen.
+        let now = newYork.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 1))!
+        let afternoon = newYork.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 14, minute: 30))!
+
+        XCTAssertEqual(DurationInput.parseEntry("@2:30", now: now, calendar: newYork), .clockTime(afternoon))
+        XCTAssertNil(DurationInput.parseEntry("@2:30am", now: now, calendar: newYork))
+        XCTAssertEqual(
+            DurationInput.parseEntry("@3:30am", now: now, calendar: newYork),
+            .clockTime(now.addingTimeInterval(90 * 60))
+        )
+    }
+
+    func testStartTitleSaysWhenATimeOfDayIsTomorrows() {
+        let calendar = Calendar.current
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 16, minute: 10))!
+        let laterToday = calendar.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 17, minute: 0))!
+        let tomorrow = calendar.date(from: DateComponents(year: 2026, month: 10, day: 9, hour: 15, minute: 30))!
+
+        XCTAssertEqual(TimerEntry.length(90).startTitle(now: now), "Start 1m 30s")
+        XCTAssertEqual(
+            TimerEntry.clockTime(laterToday).startTitle(now: now),
+            "Ring at \(TimerDateText.fireTime(for: laterToday))"
+        )
+        XCTAssertEqual(
+            TimerEntry.clockTime(tomorrow).startTitle(now: now),
+            "Ring tomorrow at \(TimerDateText.fireTime(for: tomorrow))"
+        )
+        XCTAssertEqual(
+            DurationInput.parseEntry("@3:30pm", now: now, calendar: calendar),
+            .clockTime(tomorrow)
+        )
+    }
+
+    func testALengthSpelledOutInFullFits() {
+        XCTAssertEqual(DurationInput.parse("1 hour 30 minutes 15 seconds"), 5_415)
+        XCTAssertEqual(DurationInput.parseEntry("1 hour 30 minutes 15 seconds"), .length(5_415))
+        XCTAssertNil(DurationInput.parse(String(repeating: "1", count: 41)))
+    }
+
     func testRejectsTimesOfDayItCannotRead() {
         let now = date(hour: 14, minute: 20, second: 10)
 
