@@ -40,6 +40,10 @@ struct TimerOptionFields: View {
 struct DurationField: View {
     var title = "Duration"
     @Binding var text: String
+    /// Text the field was filled with and that is accepted as it stands,
+    /// even when it is a length this field could not be given: a timer
+    /// extended past a day still has that long left.
+    var unedited: String?
 
     var body: some View {
         LabeledContent(title) {
@@ -51,7 +55,7 @@ struct DurationField: View {
                 if let duration = DurationInput.parse(text) {
                     Text(DurationText.planned(duration))
                         .foregroundStyle(.secondary)
-                } else {
+                } else if text != unedited {
                     Text("Use 25m or 1h 30m")
                         .foregroundStyle(.red)
                 }

@@ -804,11 +804,12 @@ private struct TimerRow: View {
                             onAdjustTime(TimeInterval(timer.snoozeMinutes * 60))
                         }
                     }
-                    // `now` is the row's last whole-second tick, so up to
-                    // a second more has gone by; the engine needs a second
-                    // left after the minute comes off.
+                    // The engine needs a second left after the minute
+                    // comes off. For a running timer `now` is the row's
+                    // last whole-second tick, so up to a second more has
+                    // gone by; a paused timer's time left is exact.
                     Button("Subtract 1 min") { onAdjustTime(-60) }
-                        .disabled(timer.remaining(at: now) <= 61)
+                        .disabled(timer.remaining(at: now) <= (timer.isPaused ? 60 : 61))
                     Divider()
                     Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)
@@ -901,7 +902,7 @@ private struct TimerEditorView: View {
                 // would hide every line but the last.
                 TextField("Label", text: $options.label, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
-                DurationField(title: "Time left", text: $timeLeftText)
+                DurationField(title: "Time left", text: $timeLeftText, unedited: openedTimeLeftText)
                 TimerOptionFields(options: $options)
             }
             .padding(.horizontal, 20)
