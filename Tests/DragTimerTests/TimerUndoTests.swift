@@ -129,6 +129,31 @@ final class TimerUndoTests: XCTestCase {
     }
 
     @MainActor
+    func testStartingOneTimerOfAStopAllAgainLeavesTheRestOnOffer() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let tea = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Tea"))
+        let coffee = fixture.engine.createTimer(duration: 900, options: TimerOptions(label: "Coffee"))
+        fixture.clock.date.addTimeInterval(120)
+        fixture.engine.pause(id: coffee.id)
+        fixture.engine.cancelAll()
+        let offer = fixture.engine.undoableRemoval
+        let teaEntry = fixture.engine.historyEntries.first { $0.sourceTimerID == tea.id }!
+
+        let again = fixture.engine.restartHistoryEntry(id: teaEntry.id)
+
+        XCTAssertEqual(fixture.engine.undoableRemoval?.id, offer?.id)
+        XCTAssertEqual(fixture.engine.undoableRemoval?.timers.map(\.id), [coffee.id])
+        XCTAssertEqual(fixture.engine.undoableRemoval?.summary, "Stopped 1 timer")
+
+        fixture.engine.undoLastRemoval()
+
+        XCTAssertEqual(Set(fixture.engine.timers.map(\.id)), [again!.id, coffee.id])
+        XCTAssertEqual(fixture.engine.timers.first { $0.id == coffee.id }?.pausedRemaining, 780)
+        XCTAssertEqual(fixture.engine.historyEntries.map(\.id), [teaEntry.id])
+    }
+
+    @MainActor
     func testATimerWhoseEndPassedWhileItWasRemovedRingsAtOnce() {
         let fixture = makeFixture()
         defer { fixture.cleanup() }

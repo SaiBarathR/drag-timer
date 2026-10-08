@@ -409,10 +409,17 @@ final class TimerEngine: ObservableObject {
     @discardableResult
     func restartHistoryEntry(id: UUID) -> TimerRecord? {
         guard let entry = historyEntries.first(where: { $0.id == id }) else { return nil }
-        // Starting a just-removed timer again answers the offer to undo
-        // removing it; otherwise Undo would bring back a second copy.
-        if undoableRemoval?.historyEntryIDs.contains(id) == true {
-            dismissUndo()
+        // Starting a just-removed timer again answers the offer for that
+        // timer; otherwise Undo would bring back a second copy. The rest of
+        // a Stop all stays on offer.
+        if var removal = undoableRemoval, let index = removal.historyEntryIDs.firstIndex(of: id) {
+            removal.historyEntryIDs.remove(at: index)
+            removal.timers.removeAll { $0.id == entry.sourceTimerID }
+            if removal.timers.isEmpty {
+                dismissUndo()
+            } else {
+                undoableRemoval = removal
+            }
         }
         return createTimer(
             duration: entry.plannedDuration,
