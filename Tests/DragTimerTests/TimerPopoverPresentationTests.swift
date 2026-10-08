@@ -246,6 +246,60 @@ final class TimerPopoverPresentationTests: XCTestCase {
         controller.closeForTesting()
     }
 
+    /// On a small screen the popover must not grow past what fits below the
+    /// menu bar; the list gives up the height and scrolls.
+    @MainActor
+    func testThePopoverStopsGrowingAtTheHeightOfItsScreen() {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = makeController(fixture: fixture)
+        for index in 1...9 {
+            fixture.engine.createTimer(duration: TimeInterval(index * 60), options: TimerOptions(label: "Timer \(index)"))
+        }
+        runMainLoopBriefly()
+        controller.prepareForPresentationForTesting()
+        let unlimited = controller.currentFittingContentSize.height
+
+        controller.setMaximumContentHeightForTesting(420)
+        runMainLoopBriefly()
+        controller.prepareForPresentationForTesting()
+
+        XCTAssertGreaterThan(unlimited, 420)
+        XCTAssertEqual(controller.currentContentSize.height, 420, accuracy: 0.5)
+
+        // Never below the height the popover always has.
+        controller.setMaximumContentHeightForTesting(100)
+        runMainLoopBriefly()
+        controller.prepareForPresentationForTesting()
+        XCTAssertEqual(
+            controller.currentContentSize.height,
+            TimerPopoverGeometry.minimumContentHeight,
+            accuracy: 0.5
+        )
+    }
+
+    @MainActor
+    func testOpeningTakesTheHeightLimitFromTheScreenOfTheIcon() throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = makeController(fixture: fixture)
+        let anchor = makeVisibleAnchorWindow(on: screen)
+        defer { anchor.window?.orderOut(nil) }
+
+        controller.toggle(relativeTo: anchor, positioningRect: anchor.bounds)
+        runMainLoopBriefly()
+
+        XCTAssertEqual(
+            controller.maximumContentHeightForTesting,
+            screen.visibleFrame.height - PopoverHeightLimit.margin,
+            accuracy: 0.5
+        )
+        controller.closeForTesting()
+    }
+
     @MainActor
     private func makeVisibleAnchorWindow(on screen: NSScreen) -> NSView {
         let anchorSize = NSSize(width: 32, height: 22)

@@ -87,6 +87,15 @@ final class TypedLengthEntry: ObservableObject {
     }
 }
 
+/// The tallest the popover's content may grow: what fits below the menu bar
+/// on the screen it opened on. Past that the timer list scrolls instead.
+final class PopoverHeightLimit: ObservableObject {
+    @Published var maximum: CGFloat = .infinity
+
+    /// Room for the popover's arrow and a little air above the screen's edge.
+    static let margin: CGFloat = 24
+}
+
 final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let timerEngine: TimerEngine
@@ -94,6 +103,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let onOpenHistory: () -> Void
     private let onPopoverVisibilityChanged: (Bool) -> Void
     private let typedLength = TypedLengthEntry()
+    private let heightLimit = PopoverHeightLimit()
     private var hostingController: NSHostingController<TimerListView>!
     private weak var anchorView: NSView?
     private var localClickMonitor: Any?
@@ -124,6 +134,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                 settings: settings,
                 updateChecker: updateChecker ?? UpdateChecker(settings: settings),
                 typedLength: typedLength,
+                heightLimit: heightLimit,
                 onOpenSettings: { [weak self] in
                     self?.openSettings()
                 },
@@ -155,6 +166,9 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         } else {
             self.anchorView = anchorView
             onPopoverVisibilityChanged(true)
+            if let screen = anchorView.window?.screen ?? NSScreen.main {
+                heightLimit.maximum = screen.visibleFrame.height - PopoverHeightLimit.margin
+            }
             prepareForPresentation()
             popover.show(relativeTo: positioningRect, of: anchorView, preferredEdge: .minY)
             startOutsideClickMonitoring()
@@ -180,6 +194,12 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     var currentPopoverWindowFrame: NSRect? { hostingController.view.window?.frame }
     var isShownForTesting: Bool { popover.isShown }
     var typedLengthForTesting: TypedLengthEntry { typedLength }
+
+    var maximumContentHeightForTesting: CGFloat { heightLimit.maximum }
+
+    func setMaximumContentHeightForTesting(_ height: CGFloat) {
+        heightLimit.maximum = height
+    }
 
     func prepareForPresentationForTesting() {
         prepareForPresentation()
@@ -279,11 +299,17 @@ private struct TimerListView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var updateChecker: UpdateChecker
     @ObservedObject var typedLength: TypedLengthEntry
+    @ObservedObject var heightLimit: PopoverHeightLimit
     let onOpenSettings: () -> Void
     let onOpenHistory: () -> Void
     let onStopAll: () -> Void
 
     @State private var timerBeingEdited: TimerRecord?
+    @State private var contentHeight: CGFloat = 0
+    /// The height held while Timer details is open. The sheet is attached to
+    /// the popover, so a popover that resized behind it would move the sheet
+    /// and its buttons under the pointer.
+    @State private var heightUnderDetails: CGFloat?
     @State private var heldOrder: [UUID] = []
     @State private var isPointerOverList = false
     @State private var pendingSettle: DispatchWorkItem?
@@ -322,7 +348,18 @@ private struct TimerListView: View {
             }
         }
         .frame(width: 346)
-        .frame(minHeight: TimerPopoverGeometry.minimumContentHeight)
+        .frame(
+            minHeight: heightUnderDetails ?? TimerPopoverGeometry.minimumContentHeight,
+            maxHeight: heightUnderDetails
+                ?? max(TimerPopoverGeometry.minimumContentHeight, heightLimit.maximum)
+        )
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: PopoverContentHeightKey.self, value: proxy.size.height)
+        })
+        .onPreferenceChange(PopoverContentHeightKey.self) { contentHeight = $0 }
+        .onChange(of: timerBeingEdited?.id) { _, edited in
+            heightUnderDetails = edited == nil || contentHeight <= 0 ? nil : contentHeight
+        }
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             heldOrder = timerEngine.timers.map(\.id)
@@ -777,6 +814,14 @@ private struct TimerListView: View {
 
     private func displayVersion(_ tag: String) -> String {
         tag.first?.lowercased() == "v" ? String(tag.dropFirst()) : tag
+    }
+}
+
+private struct PopoverContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
