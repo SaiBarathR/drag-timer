@@ -678,13 +678,15 @@ final class TimerEngine: ObservableObject {
 
         if activeAudioExpiryID == expiry.id {
             // Answering the timer that is sounding ends its alert, not the
-            // turn of those waiting behind it. With nobody waiting, another
-            // unanswered timer takes over, as it always has.
+            // turn of those waiting behind it. With nobody waiting, an
+            // unanswered looping alarm takes over, since it is meant to be
+            // heard until it is stopped; a one-shot that has already had its
+            // alert is not played again.
             audioPlayer.stop()
             activeAlert = nil
             activeAudioExpiryID = nil
             soundNextWaitingAlert()
-            chooseAudioExpiry(from: pendingExpiries)
+            chooseAudioExpiry(from: pendingExpiries.filter(\.timer.loop))
         }
         // Commit any child first, then the idempotent history resolution, and
         // remove the pending event last. Launch reconciliation understands
@@ -841,9 +843,6 @@ final class TimerEngine: ObservableObject {
     }
 
     private func sortPendingExpiries() {
-        pendingExpiries.sort { lhs, rhs in
-            if lhs.expiredAt != rhs.expiredAt { return lhs.expiredAt < rhs.expiredAt }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
+        pendingExpiries.sort(by: PendingExpiry.isOrderedBefore)
     }
 }

@@ -67,6 +67,14 @@ struct PendingExpiry: Codable, Identifiable, Equatable {
     /// When the timer was due. `expiredAt` is when the app got to it, which
     /// is later if the Mac slept through the end or the app was not running.
     var dueAt: Date { min(expiredAt, timer.fireDate) }
+
+    /// The order finished timers are shown and answered in: longest due
+    /// first. After a sleep every timer the Mac slept through has the same
+    /// `expiredAt`, so that cannot be what decides.
+    static func isOrderedBefore(_ lhs: PendingExpiry, _ rhs: PendingExpiry) -> Bool {
+        if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
 }
 
 struct TimerHistoryInsights: Equatable {

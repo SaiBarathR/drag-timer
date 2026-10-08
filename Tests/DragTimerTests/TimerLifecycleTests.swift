@@ -570,6 +570,47 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testAnsweringTheSoundingTimerHandsOverToALoopingAlarmButReplaysNoOneShot() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func expiry(_ label: String) -> PendingExpiry { engine.pendingExpiries.first { $0.timer.label == label }! }
+
+        // Tea has had its alert and is still unanswered when Eggs rings.
+        engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        engine.createTimer(duration: 120, options: TimerOptions(label: "Eggs"))
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        audio.finish()
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        engine.markExpiryDone(id: expiry("Eggs").id)
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
+        XCTAssertNil(engine.activeAlert)
+
+        // Two alarms that loop end together: one sounds, and answering it
+        // hands over to the other, which would otherwise never be heard.
+        engine.createTimers(templates: [
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Oven", loop: true), origin: .routine),
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Hob", loop: true), origin: .routine)
+        ])
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        let first = try! XCTUnwrap(engine.activeAlert?.label)
+        engine.markExpiryDone(id: expiry(first).id)
+
+        XCTAssertEqual(Set(audio.playedLabels.suffix(2)), ["Oven", "Hob"])
+        XCTAssertEqual(engine.activeAlert?.label, first == "Oven" ? "Hob" : "Oven")
+    }
+
+    @MainActor
     func testTimersThatFinishTogetherEachSayTheNameTheyWereAskedToSay() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))

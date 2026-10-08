@@ -136,10 +136,8 @@ enum MenuBarPresentationPolicy {
     }
 
     private static func finishedState(_ pendingExpiries: [PendingExpiry]) -> MenuBarFinishedState? {
-        let oldest = pendingExpiries.min { lhs, rhs in
-            if lhs.expiredAt != rhs.expiredAt { return lhs.expiredAt < rhs.expiredAt }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
+        // The same order the engine keeps, so this is the popover's card.
+        let oldest = pendingExpiries.min(by: PendingExpiry.isOrderedBefore)
         return oldest.map {
             MenuBarFinishedState(label: $0.timer.label, dueAt: $0.dueAt, count: pendingExpiries.count)
         }
