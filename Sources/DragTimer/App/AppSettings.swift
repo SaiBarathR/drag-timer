@@ -79,6 +79,7 @@ final class AppSettings: ObservableObject {
         var defaultSoundName: String?
         var defaultVolume: Double?
         var defaultLoop: Bool?
+        var defaultSpeaksName: Bool?
         var defaultNotificationsEnabled: Bool?
         var defaultLabel: String?
         var defaultSnoozeMinutes: Int?
@@ -114,6 +115,7 @@ final class AppSettings: ObservableObject {
     @Published var defaultSoundName: String { didSet { persist() } }
     @Published var defaultVolume: Double { didSet { persist() } }
     @Published var defaultLoop: Bool { didSet { persist() } }
+    @Published var defaultSpeaksName: Bool { didSet { persist() } }
     @Published var defaultNotificationsEnabled: Bool { didSet { persist() } }
     @Published var defaultLabel: String { didSet { persist() } }
     @Published var defaultSnoozeMinutes: Int { didSet { persist() } }
@@ -177,6 +179,7 @@ final class AppSettings: ObservableObject {
         defaultSoundName = AlertSound.normalizedName(stored?.defaultSoundName ?? AlertSound.glass.rawValue)
         defaultVolume = min(max(stored?.defaultVolume ?? 0.8, 0), 1)
         defaultLoop = stored?.defaultLoop ?? false
+        defaultSpeaksName = stored?.defaultSpeaksName ?? false
         defaultNotificationsEnabled = stored?.defaultNotificationsEnabled ?? true
         defaultLabel = stored?.defaultLabel ?? "Timer"
         defaultSnoozeMinutes = min(max(stored?.defaultSnoozeMinutes ?? 5, 1), 60)
@@ -236,7 +239,8 @@ final class AppSettings: ObservableObject {
             loop: defaultLoop,
             notify: defaultNotificationsEnabled,
             snoozeMinutes: defaultSnoozeMinutes,
-            identity: .default
+            identity: .default,
+            speaksName: defaultSpeaksName
         )
     }
 
@@ -395,6 +399,7 @@ final class AppSettings: ObservableObject {
             defaultSoundName: defaultSoundName,
             defaultVolume: defaultVolume,
             defaultLoop: defaultLoop,
+            defaultSpeaksName: defaultSpeaksName,
             defaultNotificationsEnabled: defaultNotificationsEnabled,
             defaultLabel: defaultLabel,
             defaultSnoozeMinutes: defaultSnoozeMinutes,

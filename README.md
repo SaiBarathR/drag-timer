@@ -19,7 +19,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Snooze, restart, silence, or mark a finished timer done without losing other simultaneous expiries.
 - See a finished timer in the menu bar, counting up from the moment it ended, until you answer it.
 - Stop every active timer at once, and undo that, a cancel or a Mark done for ten seconds afterwards.
-- Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
+- Choose any of 14 macOS system sounds or the system beep, with per-timer volume, notification, snooze, and loop settings, and optionally have the timer's name said aloud when it finishes.
 - Receive a macOS notification with sound when a timer finishes.
 - Set defaults for every new timer in Preferences.
 - Raise the maximum drag-created timer from 4 hours up to 24 hours in Preferences.
@@ -80,6 +80,7 @@ General controls defaults for timers created after the change:
 - Timer name, alert sound, and volume
 - Whether releasing a drag asks for a timer label (on by default)
 - Loop-until-stopped behavior
+- Whether the timer's name is said aloud after the sound
 - Notification delivery and snooze length
 
 General also shows the current macOS notification permission. If permission has not been requested, use **Allow Notifications**. If notifications are off or need adjustment, use **Open Settings** to jump directly to the macOS Notifications pane.
@@ -88,7 +89,7 @@ Presets can be added, edited, duplicated, deleted, and reordered. Each preset ke
 
 Routines can also be added, edited, duplicated, deleted, and reordered. Add a custom five-minute timer or copy any Quick start preset into a routine, then edit and reorder its independent timer snapshots. Changing a preset later does not change the copied routine timer, and changing a routine does not affect timers that are already running.
 
-Menu bar selects the deadline, count, pinned, or ring presentation. Appearance controls countdown scale, contrast, and the urgent threshold. Feel controls the maximum drag duration (4–24 hours), release behavior, spring, snapping, and haptics; the ruler geometry stays fixed so familiar durations remain at the same physical distance. Updates can run a manual check or disable the once-daily automatic check. System beep follows your Mac’s alert volume; Glass uses Drag Timer’s volume setting.
+Menu bar selects the deadline, count, pinned, or ring presentation. Appearance controls countdown scale, contrast, and the urgent threshold. Feel controls the maximum drag duration (4–24 hours), release behavior, spring, snapping, and haptics; the ruler geometry stays fixed so familiar durations remain at the same physical distance. Updates can run a manual check or disable the once-daily automatic check. System beep follows your Mac’s alert volume; every other sound, and the spoken name, uses Drag Timer’s volume setting. A sound plays once when you pick it in an editor.
 
 ## Build from source
 
@@ -162,7 +163,7 @@ The workflow also supports a manual dry run before tagging: provide the intended
 - SwiftUI provides the timer list, expiry card, History, editors, and tabbed Preferences interface.
 - Core Animation renders the drag line and duration overlay at display cadence.
 - `TimerEngine` schedules only the nearest deadline, batch-creates routine timers with one shared start time, and persists active timers, pending expiries, and idempotent terminal history as Codable JSON.
-- `AVAudioPlayer` handles Glass looping; system-beep looping is repeated until stopped.
+- `AVAudioPlayer` plays the system sounds from `/System/Library/Sounds`. A looping sound shorter than 1.25 seconds, like the system beep, is repeated on a timer so it does not run together. `AVSpeechSynthesizer` says the timer's name after the sound has played once; a looping alert starts repeating only when the name has been said.
 
 ## Privacy
 

@@ -19,7 +19,8 @@ struct RoutineTimerDefinition: Codable, Identifiable, Equatable {
             loop: options.loop,
             notify: options.notify,
             snoozeMinutes: options.snoozeMinutes,
-            identity: options.identity
+            identity: options.identity,
+            speaksName: options.speaksName
         )
     }
 

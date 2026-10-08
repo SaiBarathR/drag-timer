@@ -51,6 +51,8 @@ final class TimerEngine: ObservableObject {
     private let scheduler: DispatchSourceTimer
     private var wakeObserver: NSObjectProtocol?
     private var activeAudioExpiryID: UUID?
+    /// Expiries that arrived while another alert was sounding.
+    private var waitingAudioExpiryIDs: Set<UUID> = []
     private var didRequestNotificationAuthorization = false
     private var permissionObservation: AnyCancellable?
     private var undoExpiry: DispatchWorkItem?
@@ -414,6 +416,7 @@ final class TimerEngine: ObservableObject {
         audioPlayer.stop()
         activeAlert = nil
         activeAudioExpiryID = nil
+        waitingAudioExpiryIDs.removeAll()
     }
 
     @discardableResult
@@ -686,7 +689,12 @@ final class TimerEngine: ObservableObject {
     }
 
     private func chooseAudioExpiry(from candidates: [PendingExpiry]) {
-        guard activeAudioExpiryID == nil else { return }
+        guard activeAudioExpiryID == nil else {
+            // Heard when the alert that is sounding now is over, so that a
+            // timer ending a second or two after another is not silent.
+            waitingAudioExpiryIDs.formUnion(candidates.map(\.id))
+            return
+        }
         let candidate = candidates.last(where: { $0.timer.loop }) ?? candidates.last
         guard let candidate else { return }
         audioPlayer.play(timer: candidate.timer)
@@ -698,6 +706,9 @@ final class TimerEngine: ObservableObject {
         guard activeAlert?.loop != true else { return }
         activeAudioExpiryID = nil
         activeAlert = nil
+        let waiting = pendingExpiries.filter { waitingAudioExpiryIDs.contains($0.id) }
+        waitingAudioExpiryIDs.removeAll()
+        chooseAudioExpiry(from: waiting)
     }
 
     /// Internal for deterministic notification-action lifecycle tests.

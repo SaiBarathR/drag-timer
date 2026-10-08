@@ -470,6 +470,70 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testATimerThatFinishesDuringAnotherAlertIsHeardWhenThatAlertEnds() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        engine.createTimer(duration: 60, options: TimerOptions(label: "Tea", speaksName: true))
+        engine.createTimer(duration: 62, options: TimerOptions(label: "Eggs"))
+
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        // Tea's sound and its name take a few seconds; Eggs ends meanwhile.
+        clock.date.addTimeInterval(2)
+        engine.processExpiries()
+        XCTAssertEqual(audio.playedLabels, ["Tea"])
+
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
+        XCTAssertEqual(engine.activeAlert?.label, "Eggs")
+
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
+        XCTAssertNil(engine.activeAlert)
+    }
+
+    @MainActor
+    func testTimersThatFinishTogetherStillRingOnceAndSilencingDropsWaitingAlerts() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        engine.createTimer(duration: 60, options: TimerOptions(label: "One"))
+        engine.createTimer(duration: 60, options: TimerOptions(label: "Two"))
+        engine.createTimer(duration: 62, options: TimerOptions(label: "Later"))
+
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        XCTAssertEqual(audio.playedLabels.count, 1)
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels.count, 1, "One alert speaks for timers that finish in the same instant")
+
+        clock.date.addTimeInterval(2)
+        engine.processExpiries()
+        XCTAssertEqual(audio.playedLabels.last, "Later")
+        engine.createTimer(duration: 1, options: TimerOptions(label: "Waiting"))
+        clock.date.addTimeInterval(1)
+        engine.processExpiries()
+        engine.silenceExpiryAudio()
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels.last, "Later", "Stop sound must stay silent")
+    }
+
+    @MainActor
     func testRelaunchReconcilesPendingExpiryWithoutDuplicateHistory() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 1_000))
