@@ -46,19 +46,24 @@ struct TimerOptionFields: View {
 /// every keystroke, so Save always sees what is in the field; a formatted
 /// number field commits only on Return or when focus leaves it.
 struct DurationField: View {
+    var title = "Duration"
     @Binding var text: String
+    /// Text the field was filled with and that is accepted as it stands,
+    /// even when it is a length this field could not be given: a timer
+    /// extended past a day still has that long left.
+    var unedited: String?
 
     var body: some View {
-        LabeledContent("Duration") {
+        LabeledContent(title) {
             HStack(spacing: 8) {
-                TextField("25m, 1h 30m", text: $text)
+                TextField("25m, 90s, 1h 30m", text: $text)
                     .labelsHidden()
                     .frame(width: 110)
-                    .accessibilityLabel("Duration")
+                    .accessibilityLabel(title)
                 if let duration = DurationInput.parse(text) {
                     Text(DurationText.planned(duration))
                         .foregroundStyle(.secondary)
-                } else {
+                } else if text != unedited {
                     Text("Use 25m or 1h 30m")
                         .foregroundStyle(.red)
                 }
@@ -70,6 +75,6 @@ struct DurationField: View {
     /// How an existing length is shown for editing, in a form the field
     /// reads back to the same value.
     static func text(for duration: TimeInterval) -> String {
-        DurationText.dragSelection(duration)
+        DurationText.typed(duration)
     }
 }

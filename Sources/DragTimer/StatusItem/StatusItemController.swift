@@ -14,7 +14,7 @@ final class StatusItemController: NSObject {
     private var timersCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
     private var countdownTicker: Timer?
-    private var countdownTickerFireDate: Date?
+    private var countdownTick: Tick?
     private var clockObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var isPopoverVisible = false
     private var inputDiagnosticsMonitor: Any?
@@ -72,6 +72,8 @@ final class StatusItemController: NSObject {
     #if DEBUG
     var currentWidth: CGFloat { statusItem.length }
     var currentPopoverAnchorRect: NSRect { statusView?.popoverAnchorRect ?? .zero }
+    var accessibilityLabelForTesting: String? { statusView?.accessibilityLabel() }
+    var countdownTickIntervalForTesting: TimeInterval? { countdownTicker?.timeInterval }
 
     var contextMenuForTesting: NSMenu { makeContextMenu() }
 
@@ -134,17 +136,22 @@ final class StatusItemController: NSObject {
     }
 
     private func observeTimerChanges() {
-        timersCancellable = timerEngine.$timers.sink { [weak self] timers in
-            // @Published delivers the new value before the stored property is
-            // updated, so use the emitted collection instead of reading the
-            // engine synchronously and briefly rendering stale timer state.
-            guard let self else { return }
-            if let pinnedID = settings.pinnedTimerID,
-               !timers.contains(where: { $0.id == pinnedID }) {
-                settings.pinnedTimerID = nil
+        timersCancellable = timerEngine.$timers
+            .combineLatest(timerEngine.$pendingExpiries, timerEngine.$undoableRemoval)
+            .sink { [weak self] timers, pendingExpiries, undoableRemoval in
+                // @Published delivers the new value before the stored property is
+                // updated, so use the emitted collections instead of reading the
+                // engine synchronously and briefly rendering stale timer state.
+                guard let self else { return }
+                // A pin outlives its timer only for as long as removing that
+                // timer can still be undone.
+                if let pinnedID = settings.pinnedTimerID,
+                   !timers.contains(where: { $0.id == pinnedID }),
+                   undoableRemoval?.timers.contains(where: { $0.id == pinnedID }) != true {
+                    settings.pinnedTimerID = nil
+                }
+                refreshCountdown(using: timers, pendingExpiries: pendingExpiries)
             }
-            refreshCountdown(using: timers)
-        }
     }
 
     private func observeSettingsChanges() {
@@ -163,7 +170,7 @@ final class StatusItemController: NSObject {
         ]
         clockObservers = sources.map { center, name in
             let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.countdownTickerFireDate = nil
+                self?.countdownTick = nil
                 self?.refreshCountdown()
             }
             return (center, token)
@@ -171,13 +178,18 @@ final class StatusItemController: NSObject {
     }
 
     private func refreshCountdown(at date: Date = Date()) {
-        refreshCountdown(using: timerEngine.timers, at: date)
+        refreshCountdown(using: timerEngine.timers, pendingExpiries: timerEngine.pendingExpiries, at: date)
     }
 
-    private func refreshCountdown(using timers: [TimerRecord], at date: Date = Date()) {
+    private func refreshCountdown(
+        using timers: [TimerRecord],
+        pendingExpiries: [PendingExpiry],
+        at date: Date = Date()
+    ) {
         guard let statusView else { return }
         let presentation = MenuBarPresentationPolicy.presentation(
             timers: timers,
+            pendingExpiries: pendingExpiries,
             mode: settings.menuBarDisplayMode,
             pinnedTimerID: settings.pinnedTimerID,
             showZeroCount: settings.showZeroCount,
@@ -191,10 +203,27 @@ final class StatusItemController: NSObject {
             toolTip: description + ". Drag to set another timer or click to view timers.",
             accessibilityLabel: "Drag Timer, \(description)"
         )
-        let tickingTimer = presentation.requestedMode == .count || presentation.timer?.isPaused == true
-            ? nil
-            : presentation.timer
-        setCountdownTicker(for: tickingTimer, at: date)
+        setCountdownTicker(Self.tick(for: presentation), at: date)
+    }
+
+    private struct Tick: Equatable {
+        /// The instant the refreshes are in step with.
+        var phase: Date
+        var interval: TimeInterval
+    }
+
+    /// How often what the status item shows or says goes out of date, or nil
+    /// when it does not.
+    private static func tick(for presentation: MenuBarPresentation) -> Tick? {
+        if let finished = presentation.finished {
+            // The count-up changes every second. Where a mode has no room
+            // for it, only "2 min ago" in the tooltip and the label changes.
+            let showsCountUp = presentation.requestedMode != .count && presentation.text != nil
+            return Tick(phase: finished.expiredAt, interval: showsCountUp ? 1 : 60)
+        }
+        guard presentation.requestedMode != .count,
+              let timer = presentation.timer, !timer.isPaused else { return nil }
+        return Tick(phase: timer.fireDate, interval: 1)
     }
 
     private func updateStatusView(
@@ -222,10 +251,16 @@ final class StatusItemController: NSObject {
     }
 
     private func accessibilityDescription(for presentation: MenuBarPresentation, at date: Date) -> String {
+        let finished = presentation.finished.map { finished in
+            let others = finished.count > 1 ? ", and \(finished.count - 1) more finished" : ""
+            return "\(finished.label) finished \(MenuBarCountdown.finishedAgoText(since: finished.expiredAt, at: date))\(others)"
+        }
         switch presentation.requestedMode {
         case .count:
-            return "\(presentation.runningCount) running timer\(presentation.runningCount == 1 ? "" : "s")"
+            let running = "\(presentation.runningCount) running timer\(presentation.runningCount == 1 ? "" : "s")"
+            return finished.map { "\($0), \(running)" } ?? running
         case .deadline, .pinned, .ring:
+            if let finished { return finished }
             guard let timer = presentation.timer else {
                 return presentation.requestedMode == .pinned
                     ? "Pinned mode, no timer pinned"
@@ -239,27 +274,28 @@ final class StatusItemController: NSObject {
         }
     }
 
-    /// Ticks on the displayed timer's whole-second boundaries. The ticker is
-    /// rebuilt only when that phase changes, not on every refresh.
-    private func setCountdownTicker(for timer: TimerRecord?, at date: Date) {
-        guard let timer else {
+    /// Ticks on the boundaries of what is shown: whole seconds left on a
+    /// running timer, or whole seconds or minutes since a finished one ended.
+    /// The ticker is rebuilt only when that changes, not on every refresh.
+    private func setCountdownTicker(_ tick: Tick?, at date: Date) {
+        guard let tick else {
             countdownTicker?.invalidate()
             countdownTicker = nil
-            countdownTickerFireDate = nil
+            countdownTick = nil
             return
         }
-        guard countdownTicker == nil || countdownTickerFireDate != timer.fireDate else { return }
+        guard countdownTicker == nil || countdownTick != tick else { return }
 
         countdownTicker?.invalidate()
         let ticker = Timer(
-            fire: CountdownClock.nextTick(for: timer, after: date),
-            interval: 1,
+            fire: CountdownClock.nextTick(inPhaseWith: tick.phase, after: date, every: tick.interval),
+            interval: tick.interval,
             repeats: true
         ) { [weak self] _ in
             self?.refreshCountdown()
         }
         countdownTicker = ticker
-        countdownTickerFireDate = timer.fireDate
+        countdownTick = tick
         RunLoop.main.add(ticker, forMode: .common)
     }
 
@@ -413,7 +449,8 @@ private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
         let center = timerIconCenter
         let radius = StatusItemGeometry.iconDiameter / 2
         let identityColor = presentation.timer?.resolvedIdentity.color.nsColor ?? NSColor.labelColor
-        let color = presentation.urgent ? NSColor.systemRed : identityColor
+        let isFinished = presentation.finished != nil
+        let color = presentation.urgent || isFinished ? NSColor.systemRed : identityColor
         color.setStroke()
 
         let face = NSBezierPath(ovalIn: CGRect(
@@ -425,7 +462,20 @@ private final class StatusItemCaptureView: NSView, NSGestureRecognizerDelegate {
         face.lineWidth = highContrast ? 2.1 : 1.6
         face.stroke()
 
-        if presentation.timer?.isPaused == true {
+        if isFinished {
+            // Filled, where a running timer is only outlined, so a finished
+            // timer is told apart by shape as well as by colour.
+            color.setFill()
+            face.fill()
+            StatusItemGeometry.tintedSymbol(named: "exclamationmark", color: .white)?.draw(
+                in: NSRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: nil
+            )
+        } else if presentation.timer?.isPaused == true {
             let pause = NSBezierPath()
             pause.move(to: CGPoint(x: center.x - 2, y: center.y - 3))
             pause.line(to: CGPoint(x: center.x - 2, y: center.y + 3))

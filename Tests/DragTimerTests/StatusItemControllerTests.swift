@@ -181,6 +181,129 @@ final class StatusItemControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testFinishedTimerHoldsTheMenuBarUntilItIsAnswered() throws {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = StatusItemController(
+            timerEngine: fixture.engine,
+            settings: fixture.settings,
+            onPopoverRequested: { _, _ in }
+        )
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        let finishedAt = timer.fireDate.addingTimeInterval(1)
+
+        fixture.engine.processExpiries(at: finishedAt)
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+        controller.refreshCountdownForTesting(at: finishedAt.addingTimeInterval(135))
+
+        XCTAssertEqual(controller.currentWidth, StatusItemGeometry.width(for: "+2:15"))
+        XCTAssertEqual(
+            controller.accessibilityLabelForTesting,
+            "Drag Timer, Tea finished 2 min ago"
+        )
+
+        fixture.engine.markExpiryDone(id: try XCTUnwrap(fixture.engine.currentExpiry).id)
+        XCTAssertEqual(controller.currentWidth, 32)
+        XCTAssertEqual(controller.accessibilityLabelForTesting, "Drag Timer, No running timers")
+    }
+
+    @MainActor
+    func testFinishingNeverPassesThroughTheIdleIcon() {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        var anchors: [NSRect] = []
+        let controller = StatusItemController(
+            timerEngine: fixture.engine,
+            settings: fixture.settings,
+            onPopoverRequested: { _, _ in },
+            onPopoverAnchorChanged: { _, anchorRect in anchors.append(anchorRect) }
+        )
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        anchors.removeAll()
+
+        fixture.engine.processExpiries(at: timer.fireDate.addingTimeInterval(1))
+
+        // A collapse to the idle clock on the way to the finished state
+        // would move every menu-bar item to its left, twice.
+        XCTAssertFalse(anchors.contains { $0.midX == 16 }, "\(anchors)")
+        XCTAssertGreaterThan(controller.currentWidth, 32)
+    }
+
+    @MainActor
+    func testFinishedStateKeepsItsDescriptionFreshInEveryMode() {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = StatusItemController(
+            timerEngine: fixture.engine,
+            settings: fixture.settings,
+            onPopoverRequested: { _, _ in }
+        )
+        XCTAssertNil(controller.countdownTickIntervalForTesting)
+
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        XCTAssertEqual(controller.countdownTickIntervalForTesting, 1)
+        fixture.engine.processExpiries(at: timer.fireDate.addingTimeInterval(1))
+
+        // The count-up changes every second; without it only "2 min ago"
+        // in the tooltip and the VoiceOver label does.
+        XCTAssertEqual(controller.countdownTickIntervalForTesting, 1)
+        fixture.settings.menuBarDisplayMode = .ring
+        controller.refreshCountdownForTesting(at: Date())
+        XCTAssertEqual(controller.countdownTickIntervalForTesting, 60)
+        fixture.settings.menuBarDisplayMode = .count
+        controller.refreshCountdownForTesting(at: Date())
+        XCTAssertEqual(controller.countdownTickIntervalForTesting, 60)
+
+        fixture.engine.markExpiryDone(id: fixture.engine.pendingExpiries[0].id)
+        XCTAssertNil(controller.countdownTickIntervalForTesting)
+    }
+
+    @MainActor
+    func testAPinOutlivesItsTimerOnlyWhileRemovingItCanBeUndone() {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = StatusItemController(
+            timerEngine: fixture.engine,
+            settings: fixture.settings,
+            onPopoverRequested: { _, _ in }
+        )
+        let tea = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Tea"))
+        let other = fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Other"))
+        fixture.settings.menuBarDisplayMode = .pinned
+        fixture.settings.pinnedTimerID = tea.id
+
+        // Undone: the pin is still there for the timer to come back to.
+        fixture.engine.cancel(id: tea.id)
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+        fixture.engine.undoLastRemoval()
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+        XCTAssertEqual(fixture.engine.timers.count, 2)
+
+        // Stop all, undone, keeps it as well.
+        fixture.engine.cancelAll()
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+        fixture.engine.undoLastRemoval()
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+
+        // Not undone: the pin goes when the offer does.
+        fixture.engine.cancel(id: tea.id)
+        fixture.engine.dismissUndo()
+        XCTAssertNil(fixture.settings.pinnedTimerID)
+
+        // Replaced by a later removal: the same.
+        let again = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Tea"))
+        fixture.settings.pinnedTimerID = again.id
+        fixture.engine.cancel(id: again.id)
+        fixture.engine.cancel(id: other.id)
+        XCTAssertNil(fixture.settings.pinnedTimerID)
+        _ = controller
+    }
+
+    @MainActor
     private func makeFixture() -> Fixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("DragTimerTests-\(UUID().uuidString)", isDirectory: true)

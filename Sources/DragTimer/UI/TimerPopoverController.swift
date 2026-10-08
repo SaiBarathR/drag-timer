@@ -130,9 +130,9 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                 onOpenHistory: { [weak self] in
                     self?.openHistory()
                 },
+                // The popover stays open: the offer to undo is in it.
                 onStopAll: { [weak self] in
                     self?.timerEngine.cancelAll()
-                    self?.popover.performClose(nil)
                 }
             )
         )
@@ -302,6 +302,11 @@ private struct TimerListView: View {
                     alignment: timerEngine.timers.isEmpty ? .center : .top
                 )
 
+            if let removal = timerEngine.undoableRemoval {
+                Divider()
+                undoRow(removal)
+            }
+
             Divider()
             footer
 
@@ -321,6 +326,11 @@ private struct TimerListView: View {
             pendingSettle?.cancel()
         }
         .onChange(of: timerEngine.timers.map(\.id)) { previous, current in
+            // A timer that rings or is removed while its details are open
+            // has nothing left to edit; saving would be dropped unseen.
+            if let edited = timerBeingEdited, !current.contains(edited.id) {
+                timerBeingEdited = nil
+            }
             switch TimerListOrderPolicy.settle(
                 from: previous,
                 to: current,
@@ -332,8 +342,11 @@ private struct TimerListView: View {
             }
         }
         .sheet(item: $timerBeingEdited) { timer in
-            TimerEditorView(timer: timer) { updatedTimer in
+            TimerEditorView(timer: timer) { updatedTimer, newTimeLeft in
                 timerEngine.update(updatedTimer)
+                if let newTimeLeft {
+                    timerEngine.setRemaining(id: updatedTimer.id, to: newTimeLeft)
+                }
             }
         }
     }
@@ -389,7 +402,7 @@ private struct TimerListView: View {
     private var customDurationEntry: some View {
         if typedLength.isOpen {
             HStack(spacing: 7) {
-                TextField("25m, 1h 30m, 1:30", text: $typedLength.text)
+                TextField("25m, 90s, 1:30, @3:30pm", text: $typedLength.text)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                     .focused($customDurationFocused)
@@ -397,31 +410,41 @@ private struct TimerListView: View {
                     .onExitCommand { typedLength.isOpen = false }
                     // Focus cannot be requested until the field is in the view tree.
                     .onAppear { customDurationFocused = true }
-                    .accessibilityLabel("Timer length")
-                // Names the length it read, so "1:30" is seen to mean an hour
-                // and a half before the timer starts.
-                Button(
-                    DurationInput.parse(typedLength.text).map { "Start \(DurationText.planned($0))" } ?? "Start",
-                    action: startCustomDuration
-                )
-                .controlSize(.small)
-                .disabled(DurationInput.parse(typedLength.text) == nil)
+                    .accessibilityLabel("Timer length or time of day")
+                // Names what it read, so "1:30" is seen to mean an hour and a
+                // half, and "@4" to mean 4 PM, before the timer starts.
+                // Read again each minute: "@3:30pm" means tomorrow once
+                // 3:30 has gone by with the field still open.
+                TimelineView(.everyMinute) { _ in
+                    let entry = DurationInput.parseEntry(typedLength.text)
+                    Button(entry?.startTitle() ?? "Start", action: startCustomDuration)
+                        .controlSize(.small)
+                        .disabled(entry == nil)
+                }
             }
         } else {
             Button {
                 typedLength.isOpen = true
             } label: {
-                Label("Other length…", systemImage: "keyboard")
+                Label("Other length or time…", systemImage: "keyboard")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .accessibilityHint("Type a timer length such as 25m or 1h 30m")
+            .accessibilityHint("Type a timer length such as 25m or 90s, or a time such as @3:30pm")
         }
     }
 
     private func startCustomDuration() {
-        guard let duration = DurationInput.parse(typedLength.text) else { return }
+        // Read again now: a time of day is further away or nearer than it
+        // was when the title was drawn.
+        let duration: TimeInterval
+        switch DurationInput.parseEntry(typedLength.text) {
+        case let .length(length)?: duration = length
+        // Rounded up, so it never rings before the clock reads that time.
+        case let .clockTime(date)?: duration = date.timeIntervalSinceNow.rounded(.up)
+        case nil: return
+        }
         timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
         typedLength.text = ""
         typedLength.isOpen = false
@@ -481,8 +504,10 @@ private struct TimerListView: View {
                     Text("\(expiry.timer.label) finished")
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(2)
-                    if timerEngine.pendingExpiries.count > 1 {
-                        Text("1 of \(timerEngine.pendingExpiries.count)")
+                    // Re-read on each whole minute since it finished, and
+                    // only while the popover is on screen.
+                    TimelineView(.periodic(from: expiry.expiredAt, by: 60)) { context in
+                        Text(expiryCaption(for: expiry, at: context.date))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -514,6 +539,13 @@ private struct TimerListView: View {
         .accessibilityLabel(timerEngine.pendingExpiries.count > 1
             ? "\(expiry.timer.label) finished, 1 of \(timerEngine.pendingExpiries.count)"
             : "\(expiry.timer.label) finished")
+    }
+
+    private func expiryCaption(for expiry: PendingExpiry, at date: Date) -> String {
+        let ago = MenuBarCountdown.finishedAgoText(since: expiry.expiredAt, at: date)
+        let caption = ago.prefix(1).uppercased() + ago.dropFirst()
+        let count = timerEngine.pendingExpiries.count
+        return count > 1 ? "\(caption) · 1 of \(count)" : caption
     }
 
     private var emptyState: some View {
@@ -561,7 +593,7 @@ private struct TimerListView: View {
                                 : timerEngine.pause(id: timer.id)
                         },
                         onReset: { timerEngine.reset(id: timer.id) },
-                        onAddTime: { timerEngine.addTime(id: timer.id) },
+                        onAdjustTime: { timerEngine.adjustTime(id: timer.id, by: $0) },
                         onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
@@ -657,6 +689,24 @@ private struct TimerListView: View {
         .padding(.vertical, 12)
     }
 
+    private func undoRow(_ removal: TimerRemoval) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle")
+                .foregroundStyle(.secondary)
+            Text(removal.summary)
+                .font(.caption)
+                .lineLimit(1)
+                .help(removal.summary)
+            Spacer()
+            Button("Undo") { timerEngine.undoLastRemoval() }
+                .controlSize(.small)
+                // Command-Z belongs to the text while a length is being typed.
+                .keyboardShortcut(typedLength.isOpen ? nil : KeyboardShortcut("z", modifiers: .command))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
+
     private func updateRow(_ release: GitHubRelease) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.down.circle")
@@ -697,16 +747,8 @@ private struct TimerListView: View {
     }
 
     private func quickStartAccessibilityLabel(_ preset: QuickStartPreset) -> String {
-        let minutes = Int((preset.duration / 60).rounded())
-        if minutes >= 60, minutes.isMultiple(of: 60) {
-            let hours = minutes / 60
-            return preset.label.isEmpty
-                ? "a \(hours)-hour timer"
-                : "\(preset.label), \(hours)-hour timer"
-        }
-        return preset.label.isEmpty
-            ? "a \(minutes)-minute timer"
-            : "\(preset.label), \(minutes)-minute timer"
+        let length = DurationText.spoken(preset.duration)
+        return preset.label.isEmpty ? "a \(length) timer" : "\(preset.label), \(length) timer"
     }
 
     private func routineAccessibilityLabel(_ routine: TimerRoutine) -> String {
@@ -729,7 +771,7 @@ private struct TimerRow: View {
     let onPin: () -> Void
     let onPauseResume: () -> Void
     let onReset: () -> Void
-    let onAddTime: () -> Void
+    let onAdjustTime: (TimeInterval) -> Void
     let onDone: () -> Void
     let onCancel: () -> Void
 
@@ -792,7 +834,19 @@ private struct TimerRow: View {
                     Button("Edit timer", action: onEdit)
                     Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
                     Button("Reset timer", action: onReset)
-                    Button("Add \(timer.snoozeMinutes) min", action: onAddTime)
+                    Divider()
+                    Button("Add 1 min") { onAdjustTime(60) }
+                    if timer.snoozeMinutes != 1 {
+                        Button("Add \(timer.snoozeMinutes) min") {
+                            onAdjustTime(TimeInterval(timer.snoozeMinutes * 60))
+                        }
+                    }
+                    // The engine needs a second left after the minute
+                    // comes off. For a running timer `now` is the row's
+                    // last whole-second tick, so up to a second more has
+                    // gone by; a paused timer's time left is exact.
+                    Button("Subtract 1 min") { onAdjustTime(-60) }
+                        .disabled(timer.remaining(at: now) <= (timer.isPaused ? 60 : 61))
                     Divider()
                     Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)
@@ -848,14 +902,29 @@ private struct TimerEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     let timer: TimerRecord
-    let onSave: (TimerRecord) -> Void
+    /// The second value is a new time left, or nil when it was not edited:
+    /// the countdown kept running while the sheet was open, and saving a
+    /// new name must not wind it back.
+    let onSave: (TimerRecord, TimeInterval?) -> Void
 
     @State private var options: TimerOptions
+    @State private var timeLeftText: String
+    /// State, not a constant: the list behind the sheet rebuilds this view
+    /// whenever the engine publishes, and a constant would be read from the
+    /// clock again each time and no longer match the untouched field.
+    @State private var openedTimeLeftText: String
 
-    init(timer: TimerRecord, onSave: @escaping (TimerRecord) -> Void) {
+    init(timer: TimerRecord, onSave: @escaping (TimerRecord, TimeInterval?) -> Void) {
         self.timer = timer
         self.onSave = onSave
+        let timeLeftText = DurationField.text(for: timer.remaining().rounded(.up))
         _options = State(initialValue: timer.options)
+        _timeLeftText = State(initialValue: timeLeftText)
+        _openedTimeLeftText = State(initialValue: timeLeftText)
+    }
+
+    private var editedTimeLeft: TimeInterval? {
+        timeLeftText == openedTimeLeftText ? nil : DurationInput.parse(timeLeftText)
     }
 
     var body: some View {
@@ -870,6 +939,7 @@ private struct TimerEditorView: View {
                 // would hide every line but the last.
                 TextField("Label", text: $options.label, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
+                DurationField(title: "Time left", text: $timeLeftText, unedited: openedTimeLeftText)
                 TimerOptionFields(options: $options)
             }
             .padding(.horizontal, 20)
@@ -881,10 +951,12 @@ private struct TimerEditorView: View {
                 Button("Save changes") {
                     var updated = timer
                     updated.apply(options)
-                    onSave(updated)
+                    onSave(updated, editedTimeLeft)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                // An untouched field never blocks saving the other fields.
+                .disabled(timeLeftText != openedTimeLeftText && DurationInput.parse(timeLeftText) == nil)
             }
             .padding(20)
         }

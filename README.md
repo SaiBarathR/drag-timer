@@ -12,11 +12,13 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 
 - Create a timer by dragging from the menu-bar clock icon. A click still opens the popover; this distinction holds on current macOS, including macOS 27.
 - Choose whether the menu bar shows the nearest deadline, active count, a pinned timer, or a progress ring.
+- Start a timer by typing its length, down to seconds, or the time of day it should ring.
 - Create labeled, colored, reorderable Quick start presets with their own sound and notification behavior.
 - Save named routines such as Pomodoro or Morning routine and launch all of their timers together.
-- Pause, resume, reset, edit, add time to, cancel, or mark timers done early from the menu-bar popover.
+- Pause, resume, reset, edit, add or subtract time, set a new time left, cancel, or mark timers done early from the menu-bar popover.
 - Snooze, restart, silence, or mark a finished timer done without losing other simultaneous expiries.
-- Stop every active timer at once.
+- See a finished timer in the menu bar, counting up from the moment it ended, until you answer it.
+- Stop every active timer at once, and undo that, a cancel or a Mark done for ten seconds afterwards.
 - Choose any of 14 macOS system sounds or the system beep, with per-timer volume, notification, snooze, and loop settings, and optionally have the timer's name said aloud when it finishes.
 - Receive a macOS notification with sound when a timer finishes.
 - Set defaults for every new timer in Preferences.
@@ -54,15 +56,19 @@ shasum -a 256 -c SHA256SUMS.txt
 - Press and drag away from the icon. The floating label moves through a fixed ladder—every minute to 15 minutes, every 5 minutes to 1 hour, every 15 minutes to 4 hours, then every 30 minutes—and shows the exact trigger time in real time.
 - Precise and Snappy start exactly the duration shown at release. Throwable adds momentum while the pointer is moving, then smoothly settles back to the stable preview when you pause.
 - Release to start the timer. A prompt then offers to name it; this prompt can be disabled in Preferences. The name field wraps and takes several lines: Return saves the name, Shift-Return adds a line, Escape keeps the timer under its default name, and **Discard Timer** removes it. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
+- To back out of a drag, bring the pointer back onto the icon, where the label reads **Cancel**, and let go, or press Escape while still holding. Neither starts a timer.
 - Open the `…` menu beside a timer to pin it to the menu bar or edit its label, identity, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
-- Click **Other length…** under Quick start to type a length such as `7`, `25m`, `1h 30m` or `1:30` (hours and minutes) and start it with Return. The Start button names the length it read.
+- Click **Other length or time…** under Quick start to type a length such as `7`, `25m`, `90s`, `1m 30s`, `1h 30m` or `1:30` (hours and minutes), or a time of day such as `@3:30pm`, `at 15:30` or `until 4`, and start it with Return. The button names what it read. A time from 1 to 12 with no am or pm means the next time the clock reads it.
 - Right-click the menu-bar icon for Timer History, Settings and Quit.
 - Click a routine in the compact Routines strip to start every timer snapshot in that routine at once. The launched timers remain independently controllable.
 - Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
+- To change how long a running timer has left, use **Add 1 min**, **Add N min** (its snooze length) or **Subtract 1 min** in the `…` menu; these leave its planned length alone, so Reset still returns to what was set. To set an exact time, choose **Edit timer** and type it into **Time left**: the countdown starts again at that length, which becomes the planned length.
 - Click the checkmark beside a running timer, or choose **Mark done** in the `…` menu, to finish it early. It is recorded in history as completed and never rings.
 - At expiry, use **Snooze**, **Restart**, or **Mark done**. The speaker button silences audio without resolving the expiry card.
+- Until a finished timer is answered, the menu-bar icon is solid red and counts up from the moment it ended (`+2:15`), ahead of any running countdown. Ring shows a full red ring instead, and Count keeps its number beside the red icon. The card says how long ago the timer finished.
 - Click **Stop all** at the bottom of the popover to cancel every active timer and stop ringing audio. Existing expiry cards still require an explicit action.
+- For ten seconds after **Stop all**, **Cancel timer** or **Mark done** on a running timer, the popover offers **Undo** (also Command-Z). It puts the timers back with the end times they had, paused ones still paused, and takes them out of history.
 - Use the history button in the footer to review completed and cancelled timers, filter the list, clear it, or start a timer again.
 
 ### Preferences
@@ -79,7 +85,7 @@ General controls defaults for timers created after the change:
 
 General also shows the current macOS notification permission. If permission has not been requested, use **Allow Notifications**. If notifications are off or need adjustment, use **Open Settings** to jump directly to the macOS Notifications pane.
 
-Presets can be added, edited, duplicated, deleted, and reordered. Each preset keeps its own label, duration, color, symbol, sound, volume, looping, notification, and snooze choices. Editing a preset never changes an already-running timer.
+Presets can be added, edited, duplicated, deleted, and reordered. Each preset keeps its own label, duration, color, symbol, sound, volume, looping, notification, and snooze choices. Editing a preset never changes an already-running timer. A preset or routine timer can be as short as one second (`45s`, `1m 30s`); the drag ruler still moves in whole minutes.
 
 Routines can also be added, edited, duplicated, deleted, and reordered. Add a custom five-minute timer or copy any Quick start preset into a routine, then edit and reorder its independent timer snapshots. Changing a preset later does not change the copied routine timer, and changing a routine does not affect timers that are already running.
 

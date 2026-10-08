@@ -3,11 +3,40 @@ import Combine
 import Foundation
 import os
 
+/// Timers that Cancel, Mark done or Stop all has just taken off the list,
+/// kept for a few seconds so that one click can put them back.
+struct TimerRemoval: Equatable, Identifiable {
+    enum Kind: Equatable {
+        case cancelled
+        case markedDone
+        case stoppedAll
+    }
+
+    let id = UUID()
+    var kind: Kind
+    var timers: [TimerRecord]
+    var historyEntryIDs: [UUID]
+    var removedAt: Date
+
+    var summary: String {
+        let name = timers.first?.label ?? "timer"
+        switch kind {
+        case .cancelled: return "Cancelled \(name)"
+        case .markedDone: return "Marked \(name) done"
+        case .stoppedAll: return "Stopped \(timers.count) \(timers.count == 1 ? "timer" : "timers")"
+        }
+    }
+}
+
 final class TimerEngine: ObservableObject {
+    /// How long a removal can be undone.
+    static let undoWindow: TimeInterval = 10
+
     @Published private(set) var timers: [TimerRecord] = []
     @Published private(set) var pendingExpiries: [PendingExpiry] = []
     @Published private(set) var historyEntries: [TimerHistoryEntry] = []
     @Published private(set) var activeAlert: TimerRecord?
+    @Published private(set) var undoableRemoval: TimerRemoval?
 
     private static let logger = Logger(subsystem: "com.dragtimer.app", category: "persistence")
 
@@ -26,6 +55,7 @@ final class TimerEngine: ObservableObject {
     private var waitingAudioExpiryIDs: Set<UUID> = []
     private var didRequestNotificationAuthorization = false
     private var permissionObservation: AnyCancellable?
+    private var undoExpiry: DispatchWorkItem?
 
     init(
         persistence: TimerPersistence,
@@ -83,6 +113,7 @@ final class TimerEngine: ObservableObject {
         }
         scheduler.setEventHandler {}
         scheduler.cancel()
+        undoExpiry?.cancel()
     }
 
     var currentExpiry: PendingExpiry? { pendingExpiries.first }
@@ -192,12 +223,21 @@ final class TimerEngine: ObservableObject {
         resolution: ExpiryResolution? = nil
     ) {
         guard let timer = timers.first(where: { $0.id == id }) else { return }
-        if let outcome {
-            appendHistory(TimerHistoryEntry(
-                timer: timer,
-                endedAt: now(),
-                outcome: outcome,
-                resolution: resolution
+        let endedAt = now()
+        let entry = outcome.map {
+            TimerHistoryEntry(timer: timer, endedAt: endedAt, outcome: $0, resolution: resolution)
+        }
+        if let entry {
+            appendHistory(entry)
+            // Offered before the timer leaves the list, so that an observer
+            // of both never finds it in neither. A discard has no entry and
+            // is not offered back: it was asked for by name, from the prompt
+            // that had only just created the timer.
+            offerUndo(TimerRemoval(
+                kind: entry.outcome == .cancelled ? .cancelled : .markedDone,
+                timers: [timer],
+                historyEntryIDs: [entry.id],
+                removedAt: endedAt
             ))
         }
         heap.remove(id: id)
@@ -208,16 +248,93 @@ final class TimerEngine: ObservableObject {
         rearmScheduler()
     }
 
+    /// Puts back what the last Cancel, Mark done or Stop all removed, with
+    /// the end times the timers had, and takes their entries out of history.
+    /// A timer whose end has passed in the meantime rings at once.
+    func undoLastRemoval() {
+        guard let removal = undoableRemoval else { return }
+        guard now().timeIntervalSince(removal.removedAt) <= Self.undoWindow else {
+            // The offer outlived its window, as it can across a sleep.
+            dismissUndo()
+            return
+        }
+        let entryIDs = Set(removal.historyEntryIDs)
+        historyEntries.removeAll { entryIDs.contains($0.id) }
+        requestNotificationAuthorizationOnce()
+        for timer in removal.timers where !timers.contains(where: { $0.id == timer.id }) {
+            timers.append(timer)
+            guard !timer.isPaused else { continue }
+            heap.insert(timer)
+            // One that is already due rings in the app at once; a banner
+            // scheduled now would arrive after it.
+            if timer.fireDate > now() {
+                notificationService.schedule(timer)
+            }
+        }
+        sortTimers()
+        // Withdrawn only once the timers are back, for the same observer.
+        dismissUndo()
+        // Timers first. Launch treats a timer that also has a history entry
+        // as ended, so a crash between the two writes leaves the removal
+        // standing instead of losing the timer from both files.
+        persistActiveTimers()
+        persistHistory()
+        rearmScheduler()
+    }
+
+    func dismissUndo() {
+        undoExpiry?.cancel()
+        undoExpiry = nil
+        undoableRemoval = nil
+    }
+
+    private func offerUndo(_ removal: TimerRemoval) {
+        undoExpiry?.cancel()
+        undoableRemoval = removal
+        let expiry = DispatchWorkItem { [weak self] in
+            guard let self, self.undoableRemoval?.id == removal.id else { return }
+            self.undoableRemoval = nil
+        }
+        undoExpiry = expiry
+        // The wall clock, like `removedAt`, so the offer does not outlive
+        // its window by however long the Mac was asleep.
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + Self.undoWindow, execute: expiry)
+    }
+
     /// Pushes an active timer back by its snooze length. The planned duration
     /// is untouched, so Reset still returns to what was originally set, and a
     /// paused timer stays paused. Expiry-card snooze uses `snoozeExpiry(id:)`.
     func addTime(id: UUID) {
-        guard var timer = timers.first(where: { $0.id == id }) else { return }
-        let extra = TimeInterval(timer.snoozeMinutes * 60)
+        guard let timer = timers.first(where: { $0.id == id }) else { return }
+        adjustTime(id: id, by: TimeInterval(timer.snoozeMinutes * 60))
+    }
+
+    /// Moves an active timer's end later or earlier. Like `addTime(id:)` it
+    /// leaves the planned duration and a pause alone. A change that would
+    /// leave less than a second to run is ignored; ending a timer early is
+    /// what Mark done and Cancel are for.
+    func adjustTime(id: UUID, by change: TimeInterval) {
+        guard var timer = timers.first(where: { $0.id == id }),
+              timer.remaining(at: now()) + change >= 1 else { return }
         if let remaining = timer.pausedRemaining {
-            timer.pausedRemaining = remaining + extra
+            timer.pausedRemaining = remaining + change
         } else {
-            timer.fireDate = timer.fireDate.addingTimeInterval(extra)
+            timer.fireDate = timer.fireDate.addingTimeInterval(change)
+        }
+        update(timer)
+    }
+
+    /// Starts an active timer's countdown again at a new length. That length
+    /// becomes its planned duration, so Reset, the progress ring and history
+    /// all follow it. A paused timer stays paused.
+    func setRemaining(id: UUID, to duration: TimeInterval) {
+        guard var timer = timers.first(where: { $0.id == id }) else { return }
+        let duration = Self.clamped(duration)
+        timer.originalDuration = duration
+        if timer.isPaused {
+            timer.pausedRemaining = duration
+        } else {
+            timer.fireDate = now().addingTimeInterval(duration)
         }
         update(timer)
     }
@@ -271,9 +388,21 @@ final class TimerEngine: ObservableObject {
 
     func cancelAll() {
         let endedAt = now()
-        for timer in timers {
-            appendHistory(TimerHistoryEntry(timer: timer, endedAt: endedAt, outcome: .cancelled))
+        let stopped = timers
+        var entryIDs: [UUID] = []
+        for timer in stopped {
+            let entry = TimerHistoryEntry(timer: timer, endedAt: endedAt, outcome: .cancelled)
+            appendHistory(entry)
+            entryIDs.append(entry.id)
             notificationService.remove(timerID: timer.id)
+        }
+        if !stopped.isEmpty {
+            offerUndo(TimerRemoval(
+                kind: .stoppedAll,
+                timers: stopped,
+                historyEntryIDs: entryIDs,
+                removedAt: endedAt
+            ))
         }
         heap = DeadlineHeap()
         timers.removeAll()
@@ -307,6 +436,18 @@ final class TimerEngine: ObservableObject {
     @discardableResult
     func restartHistoryEntry(id: UUID) -> TimerRecord? {
         guard let entry = historyEntries.first(where: { $0.id == id }) else { return nil }
+        // Starting a just-removed timer again answers the offer for that
+        // timer; otherwise Undo would bring back a second copy. The rest of
+        // a Stop all stays on offer.
+        if var removal = undoableRemoval, let index = removal.historyEntryIDs.firstIndex(of: id) {
+            removal.historyEntryIDs.remove(at: index)
+            removal.timers.removeAll { $0.id == entry.sourceTimerID }
+            if removal.timers.isEmpty {
+                dismissUndo()
+            } else {
+                undoableRemoval = removal
+            }
+        }
         return createTimer(
             duration: entry.plannedDuration,
             options: entry.optionsSnapshot,
@@ -340,7 +481,6 @@ final class TimerEngine: ObservableObject {
         }
 
         let expiredIDs = Set(expiredTimers.map(\.id))
-        timers.removeAll { expiredIDs.contains($0.id) }
         for timer in expiredTimers {
             notificationService.remove(timerID: timer.id)
             let expiry = PendingExpiry(timer: timer, expiredAt: currentDate)
@@ -353,6 +493,9 @@ final class TimerEngine: ObservableObject {
             ))
         }
         sortPendingExpiries()
+        // Published after the pending expiries: an observer of both lists
+        // must never see a timer that has finished in neither of them.
+        timers.removeAll { expiredIDs.contains($0.id) }
 
         // Persist pending first. If the app exits before history or timers are
         // saved, launch reconciliation can finish the transition without a

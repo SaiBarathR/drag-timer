@@ -84,7 +84,7 @@ struct QuickStartPreset: Codable, Identifiable, Equatable {
         identity: TimerIdentity = .default
     ) {
         self.id = id
-        self.duration = min(max(duration.rounded(), 60), 24 * 60 * 60)
+        self.duration = min(max(duration.rounded(), 1), 24 * 60 * 60)
         self.label = label.trimmingCharacters(in: .whitespacesAndNewlines)
         self.alert = alert
         self.identity = identity

@@ -78,6 +78,139 @@ final class DragGestureControllerTests: XCTestCase {
         XCTAssertEqual(fixture.engine.timers.map(\.resetDuration), [300])
     }
 
+    func testReleasingBackOnTheIconStartsNothing() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        fixture.controller.drag(pointer: pointer(pulled: 88), timestamp: 0.1)
+        fixture.spy.haptics = []
+        fixture.controller.drag(pointer: pointer(pulled: 3), timestamp: 0.2)
+        fixture.spy.driver?.fireFrame()
+        XCTAssertEqual(fixture.spy.overlay?.lastIsCancelling, true)
+        XCTAssertEqual(fixture.spy.overlay?.lastIsSnapped, false)
+        XCTAssertEqual(fixture.spy.haptics.last, .generic)
+
+        fixture.controller.end(pointer: pointer(pulled: 3), timestamp: 2)
+        fixture.spy.driver?.fireFrame()
+
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+        XCTAssertEqual(fixture.popoverRequests(), 0)
+        XCTAssertEqual(fixture.spy.overlay?.events, ["show", "hide"])
+        XCTAssertEqual(fixture.spy.driver?.isRunning, false)
+
+        // The next drag is an ordinary one.
+        drag(fixture, pulled: [88])
+        fixture.spy.driver?.fireFrame()
+        XCTAssertEqual(fixture.engine.timers.map(\.resetDuration), [300])
+    }
+
+    func testLeavingTheIconAgainTurnsCancelBackIntoADuration() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        for (index, pulled) in [88.0, 3, 48].enumerated() {
+            fixture.controller.drag(pointer: pointer(pulled: pulled), timestamp: Double(index + 1) * 0.1)
+        }
+        fixture.spy.driver?.fireFrame()
+        XCTAssertEqual(fixture.spy.overlay?.lastIsCancelling, false)
+        fixture.controller.end(pointer: pointer(pulled: 48), timestamp: 2)
+        fixture.spy.driver?.fireFrame()
+
+        XCTAssertEqual(fixture.engine.timers.map(\.resetDuration), [180])
+    }
+
+    func testTheCancelZoneIsEnteredInsideTheActivationDistanceAndLeftAtIt() {
+        let entering = makeFixture()
+        defer { entering.cleanup() }
+        // 7 pt is inside the activation distance but short of the icon:
+        // still the one-minute rung on the way in.
+        drag(entering, pulled: [88, 7])
+        entering.spy.driver?.fireFrame()
+        XCTAssertEqual(entering.engine.timers.map(\.resetDuration), [60])
+
+        let leaving = makeFixture()
+        defer { leaving.cleanup() }
+        // Once on the icon, 7 pt is not yet off it.
+        drag(leaving, pulled: [88, 3, 7])
+        leaving.spy.driver?.fireFrame()
+        XCTAssertTrue(leaving.engine.timers.isEmpty)
+        XCTAssertEqual(leaving.popoverRequests(), 0)
+    }
+
+    func testEscapeAbortsADragThatIsStillHeld() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        XCTAssertEqual(fixture.spy.cancelKey?.isRegistered, true)
+        fixture.controller.drag(pointer: pointer(pulled: 88), timestamp: 0.1)
+        fixture.spy.cancelKey?.press()
+        XCTAssertEqual(fixture.spy.overlay?.events.last, "hide")
+        XCTAssertEqual(fixture.spy.cancelKey?.isRegistered, false)
+
+        // The button is still down; letting go now belongs to no drag.
+        fixture.controller.end(pointer: pointer(pulled: 88), timestamp: 2)
+        fixture.spy.driver?.fireFrame()
+
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+        XCTAssertEqual(fixture.popoverRequests(), 0)
+    }
+
+    func testEscapePressedJustBeforeReleaseStillCancels() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        fixture.controller.drag(pointer: pointer(pulled: 88), timestamp: 0.1)
+        fixture.spy.cancelKey?.pressWithoutDelivering()
+        fixture.controller.end(pointer: pointer(pulled: 88), timestamp: 0.2)
+        fixture.spy.driver?.fireFrame()
+        // The callback arrives after the release and finds nothing to do.
+        fixture.spy.cancelKey?.onPress?()
+
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+        XCTAssertEqual(fixture.popoverRequests(), 0)
+        XCTAssertEqual(fixture.spy.overlay?.events.last, "hide")
+        XCTAssertEqual(fixture.spy.cancelKey?.isRegistered, false)
+    }
+
+    func testReleasingOffTheIconClearsCancelForTheSettleFrames() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        fixture.settings.applyPreset(.throwable)
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        fixture.controller.drag(pointer: pointer(pulled: 88), timestamp: 0.1)
+        // The last sample before the button comes up is on the icon; the
+        // release itself is reported well off it.
+        fixture.controller.drag(pointer: pointer(pulled: 3), timestamp: 0.2)
+        fixture.controller.end(pointer: pointer(pulled: 88), timestamp: 2)
+        fixture.spy.driver?.fireFrame()
+
+        XCTAssertEqual(fixture.spy.overlay?.lastIsCancelling, false)
+        XCTAssertEqual(fixture.engine.timers.map(\.resetDuration), [300])
+    }
+
+    func testEscapeIsGivenBackAtReleaseAndCannotUndoATimer() {
+        let fixture = makeFixture(askForLabel: true)
+        defer { fixture.cleanup() }
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        fixture.controller.drag(pointer: pointer(pulled: 88), timestamp: 0.1)
+        fixture.controller.end(pointer: pointer(pulled: 88), timestamp: 2)
+        // Released: the key is back with the front application, and with
+        // the name prompt that is about to open.
+        XCTAssertEqual(fixture.spy.cancelKey?.isRegistered, false)
+        fixture.spy.cancelKey?.onPress?()
+        fixture.spy.driver?.fireFrame()
+        waitForPrompt(fixture)
+
+        XCTAssertEqual(fixture.engine.timers.map(\.resetDuration), [300])
+        XCTAssertEqual(fixture.spy.promptRequests.count, 1)
+    }
+
     func testHapticsMarkActivationEachRungAndSnapCapture() {
         let fixture = makeFixture()
         defer { fixture.cleanup() }
@@ -136,7 +269,7 @@ final class DragGestureControllerTests: XCTestCase {
 
         // A second drag is ignored while the prompt is pending.
         fixture.controller.begin(origin: origin, pointer: origin, timestamp: 2)
-        wait(0.05)
+        waitForPrompt(fixture)
 
         XCTAssertEqual(fixture.spy.promptRequests.map(\.label), ["Timer"])
         XCTAssertEqual(fixture.spy.promptRequests.first?.fireDate, fixture.engine.timers.first?.fireDate)
@@ -155,7 +288,7 @@ final class DragGestureControllerTests: XCTestCase {
 
         drag(fixture, pulled: [88])
         fixture.spy.driver?.fireFrame()
-        wait(0.5)
+        waitForPrompt(fixture)
 
         XCTAssertEqual(fixture.spy.promptRequests.count, 1)
         XCTAssertEqual(fixture.spy.mainQueueDrainedDuringPrompt, true)
@@ -194,7 +327,7 @@ final class DragGestureControllerTests: XCTestCase {
 
         drag(fixture, pulled: [88])
         fixture.spy.driver?.fireFrame()
-        wait(0.05)
+        waitForPrompt(fixture)
 
         XCTAssertTrue(fixture.engine.timers.isEmpty)
         XCTAssertTrue(fixture.engine.historyEntries.isEmpty)
@@ -207,10 +340,10 @@ final class DragGestureControllerTests: XCTestCase {
 
         drag(fixture, pulled: [88])
         fixture.spy.driver?.fireFrame()
-        wait(0.05)
+        waitForPrompt(fixture)
         drag(fixture, pulled: [28])
         fixture.spy.driver?.fireFrame()
-        wait(0.05)
+        waitForPrompt(fixture, count: 2)
 
         XCTAssertEqual(fixture.engine.timers.map(\.resetDuration).sorted(), [120, 300])
     }
@@ -230,8 +363,25 @@ final class DragGestureControllerTests: XCTestCase {
         fixture.controller.end(pointer: pointer(pulled: distances.last ?? 0), timestamp: 2)
     }
 
+    /// Runs the run loop until the name prompt has been asked for. A run-loop
+    /// timer opens it, and a CI machine can hold that timer back for longer
+    /// than any fixed wait worth writing: the test process is an application
+    /// with no window on screen, which macOS is free to throttle.
+    private func waitForPrompt(_ fixture: Fixture, count: Int = 1) {
+        let deadline = Date().addingTimeInterval(10)
+        while fixture.spy.promptRequests.count < count, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+    }
+
+    /// Always at least one real pass of the run loop. On a stalled CI machine
+    /// the deadline can have gone by before `run(until:)` starts, and it then
+    /// returns without firing the timer the test is waiting for.
     private func wait(_ interval: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(interval))
+        let deadline = Date().addingTimeInterval(interval)
+        repeat {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        } while Date() < deadline
     }
 
     private struct Fixture {
@@ -279,6 +429,7 @@ final class DragGestureControllerTests: XCTestCase {
     private final class Spy {
         var overlays: [OverlaySpy] = []
         var drivers: [DriverSpy] = []
+        var cancelKeys: [CancelKeySpy] = []
         var haptics: [NSHapticFeedbackManager.FeedbackPattern] = []
         var promptRequests: [(fireDate: Date, label: String)] = []
         var promptOutcome: TimerLabelPromptOutcome = .keptName
@@ -288,6 +439,7 @@ final class DragGestureControllerTests: XCTestCase {
         private let driverStarts: Bool
 
         var overlay: OverlaySpy? { overlays.last }
+        var cancelKey: CancelKeySpy? { cancelKeys.last }
         var driver: DriverSpy? { drivers.last }
 
         init(driverStarts: Bool) { self.driverStarts = driverStarts }
@@ -320,6 +472,11 @@ final class DragGestureControllerTests: XCTestCase {
                         mainQueueDrainedDuringPrompt = drained
                     }
                     return promptOutcome
+                },
+                makeCancelKey: { [unowned self] in
+                    let key = CancelKeySpy()
+                    cancelKeys.append(key)
+                    return key
                 }
             )
         }
@@ -328,6 +485,8 @@ final class DragGestureControllerTests: XCTestCase {
     private final class OverlaySpy: DragOverlayPresenting {
         var events: [String] = []
         var lastDuration: TimeInterval?
+        var lastIsCancelling: Bool?
+        var lastIsSnapped: Bool?
 
         func show() { events.append("show") }
         func hide() { events.append("hide") }
@@ -336,9 +495,37 @@ final class DragGestureControllerTests: XCTestCase {
             cursorScreen: CGPoint,
             duration: TimeInterval,
             isSnapped: Bool,
+            isCancelling: Bool,
             updateText: Bool
         ) {
             lastDuration = duration
+            lastIsCancelling = isCancelling
+            lastIsSnapped = isSnapped
+        }
+    }
+
+    private final class CancelKeySpy: DragCancelKeying {
+        var onPress: (() -> Void)?
+        private(set) var isRegistered = false
+        private(set) var wasPressed = false
+
+        func register() {
+            isRegistered = true
+            wasPressed = false
+        }
+
+        func unregister() { isRegistered = false }
+
+        /// Escape reaches the app only while the key is registered.
+        func press() {
+            guard isRegistered else { return }
+            wasPressed = true
+            onPress?()
+        }
+
+        /// The key has gone down but its callback has not run yet.
+        func pressWithoutDelivering() {
+            if isRegistered { wasPressed = true }
         }
     }
 

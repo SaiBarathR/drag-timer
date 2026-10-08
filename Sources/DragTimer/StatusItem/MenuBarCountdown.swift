@@ -29,6 +29,34 @@ enum MenuBarCountdown {
         let seconds = totalSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)
     }
+
+    /// Time since a timer finished, counting up: "+0:05", "+2:15", "+1h 5m".
+    static func overtimeText(since expiredAt: Date, at date: Date = Date()) -> String {
+        "+" + text(forRemaining: max(0, date.timeIntervalSince(expiredAt)).rounded(.down))
+    }
+
+    /// How long ago a timer finished, in whole minutes: "just now",
+    /// "2 min ago", "1 hr 5 min ago", "3 days ago".
+    static func finishedAgoText(since expiredAt: Date, at date: Date = Date()) -> String {
+        // Half a second of slack, so a view that re-reads this exactly on the
+        // minute never lands a hair short of it.
+        let minutes = Int((max(0, date.timeIntervalSince(expiredAt)) + 0.5) / 60)
+        if minutes < 1 { return "just now" }
+        if minutes < 60 { return "\(minutes) min ago" }
+        let hours = minutes / 60
+        if hours < 24 {
+            return minutes % 60 == 0 ? "\(hours) hr ago" : "\(hours) hr \(minutes % 60) min ago"
+        }
+        return "\(hours / 24) \(hours / 24 == 1 ? "day" : "days") ago"
+    }
+}
+
+/// The finished timers still waiting for Snooze, Restart or Mark done.
+struct MenuBarFinishedState: Equatable {
+    /// The one that has waited longest, which is also the popover's card.
+    var label: String
+    var expiredAt: Date
+    var count: Int
 }
 
 struct MenuBarPresentation: Equatable {
@@ -39,6 +67,7 @@ struct MenuBarPresentation: Equatable {
     var usesFallback: Bool
     var urgent: Bool
     var progress: Double?
+    var finished: MenuBarFinishedState?
 
     var hasExpandedLayout: Bool { text != nil }
 }
@@ -46,6 +75,7 @@ struct MenuBarPresentation: Equatable {
 enum MenuBarPresentationPolicy {
     static func presentation(
         timers: [TimerRecord],
+        pendingExpiries: [PendingExpiry] = [],
         mode: MenuBarDisplayMode,
         pinnedTimerID: UUID?,
         showZeroCount: Bool,
@@ -55,6 +85,24 @@ enum MenuBarPresentationPolicy {
         let running = timers.filter { !$0.isPaused }
         let nearest = MenuBarCountdown.earliestRunningTimer(in: timers)
         let pinned = pinnedTimerID.flatMap { id in timers.first { $0.id == id } }
+        let finished = finishedState(pendingExpiries)
+
+        // A finished timer nobody has answered outranks every countdown: the
+        // sound may have been missed, and the menu bar is all that is left.
+        if let finished, mode != .count {
+            return MenuBarPresentation(
+                requestedMode: mode,
+                text: mode == .ring
+                    ? nil
+                    : MenuBarCountdown.overtimeText(since: finished.expiredAt, at: date),
+                timer: nil,
+                runningCount: running.count,
+                usesFallback: false,
+                urgent: true,
+                progress: 1,
+                finished: finished
+            )
+        }
 
         switch mode {
         case .deadline:
@@ -67,7 +115,8 @@ enum MenuBarPresentationPolicy {
                 runningCount: running.count,
                 usesFallback: false,
                 urgent: false,
-                progress: nil
+                progress: nil,
+                finished: finished
             )
         case .pinned:
             let selected = pinned ?? nearest
@@ -80,6 +129,16 @@ enum MenuBarPresentationPolicy {
             result.text = nil
             result.usesFallback = pinnedTimerID != nil && pinned == nil && nearest != nil
             return result
+        }
+    }
+
+    private static func finishedState(_ pendingExpiries: [PendingExpiry]) -> MenuBarFinishedState? {
+        let oldest = pendingExpiries.min { lhs, rhs in
+            if lhs.expiredAt != rhs.expiredAt { return lhs.expiredAt < rhs.expiredAt }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        return oldest.map {
+            MenuBarFinishedState(label: $0.timer.label, expiredAt: $0.expiredAt, count: pendingExpiries.count)
         }
     }
 
@@ -113,7 +172,14 @@ enum CountdownClock {
     /// The first instant at or after `date` at which `timer` has a whole
     /// number of seconds left.
     static func nextTick(for timer: TimerRecord, after date: Date) -> Date {
-        let untilFire = timer.fireDate.timeIntervalSince(date)
-        return date.addingTimeInterval(untilFire - untilFire.rounded(.down))
+        nextTick(inPhaseWith: timer.fireDate, after: date)
+    }
+
+    /// The first instant at or after `date` that is a whole number of
+    /// intervals from `phase`, whether `phase` is still ahead (a fire date)
+    /// or already behind (the moment a timer finished).
+    static func nextTick(inPhaseWith phase: Date, after date: Date, every interval: TimeInterval = 1) -> Date {
+        let offset = phase.timeIntervalSince(date) / interval
+        return date.addingTimeInterval((offset - offset.rounded(.down)) * interval)
     }
 }
