@@ -14,7 +14,7 @@ final class StatusItemController: NSObject {
     private var timersCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
     private var countdownTicker: Timer?
-    private var countdownTickerPhase: Date?
+    private var countdownTick: Tick?
     private var clockObservers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var isPopoverVisible = false
     private var inputDiagnosticsMonitor: Any?
@@ -73,6 +73,7 @@ final class StatusItemController: NSObject {
     var currentWidth: CGFloat { statusItem.length }
     var currentPopoverAnchorRect: NSRect { statusView?.popoverAnchorRect ?? .zero }
     var accessibilityLabelForTesting: String? { statusView?.accessibilityLabel() }
+    var countdownTickIntervalForTesting: TimeInterval? { countdownTicker?.timeInterval }
 
     var contextMenuForTesting: NSMenu { makeContextMenu() }
 
@@ -166,7 +167,7 @@ final class StatusItemController: NSObject {
         ]
         clockObservers = sources.map { center, name in
             let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.countdownTickerPhase = nil
+                self?.countdownTick = nil
                 self?.refreshCountdown()
             }
             return (center, token)
@@ -199,18 +200,27 @@ final class StatusItemController: NSObject {
             toolTip: description + ". Drag to set another timer or click to view timers.",
             accessibilityLabel: "Drag Timer, \(description)"
         )
-        setCountdownTicker(inPhaseWith: Self.tickPhase(for: presentation), at: date)
+        setCountdownTicker(Self.tick(for: presentation), at: date)
     }
 
-    /// The instant the drawn text is in step with, or nil when nothing drawn
-    /// changes from one second to the next.
-    private static func tickPhase(for presentation: MenuBarPresentation) -> Date? {
-        guard presentation.requestedMode != .count else { return nil }
+    private struct Tick: Equatable {
+        /// The instant the refreshes are in step with.
+        var phase: Date
+        var interval: TimeInterval
+    }
+
+    /// How often what the status item shows or says goes out of date, or nil
+    /// when it does not.
+    private static func tick(for presentation: MenuBarPresentation) -> Tick? {
         if let finished = presentation.finished {
-            return presentation.text == nil ? nil : finished.expiredAt
+            // The count-up changes every second. Where a mode has no room
+            // for it, only "2 min ago" in the tooltip and the label changes.
+            let showsCountUp = presentation.requestedMode != .count && presentation.text != nil
+            return Tick(phase: finished.expiredAt, interval: showsCountUp ? 1 : 60)
         }
-        guard let timer = presentation.timer, !timer.isPaused else { return nil }
-        return timer.fireDate
+        guard presentation.requestedMode != .count,
+              let timer = presentation.timer, !timer.isPaused else { return nil }
+        return Tick(phase: timer.fireDate, interval: 1)
     }
 
     private func updateStatusView(
@@ -261,28 +271,28 @@ final class StatusItemController: NSObject {
         }
     }
 
-    /// Ticks on the displayed text's whole-second boundaries: seconds left on
-    /// a running timer, or seconds since a finished one ended. The ticker is
-    /// rebuilt only when that phase changes, not on every refresh.
-    private func setCountdownTicker(inPhaseWith phase: Date?, at date: Date) {
-        guard let phase else {
+    /// Ticks on the boundaries of what is shown: whole seconds left on a
+    /// running timer, or whole seconds or minutes since a finished one ended.
+    /// The ticker is rebuilt only when that changes, not on every refresh.
+    private func setCountdownTicker(_ tick: Tick?, at date: Date) {
+        guard let tick else {
             countdownTicker?.invalidate()
             countdownTicker = nil
-            countdownTickerPhase = nil
+            countdownTick = nil
             return
         }
-        guard countdownTicker == nil || countdownTickerPhase != phase else { return }
+        guard countdownTicker == nil || countdownTick != tick else { return }
 
         countdownTicker?.invalidate()
         let ticker = Timer(
-            fire: CountdownClock.nextTick(inPhaseWith: phase, after: date),
-            interval: 1,
+            fire: CountdownClock.nextTick(inPhaseWith: tick.phase, after: date, every: tick.interval),
+            interval: tick.interval,
             repeats: true
         ) { [weak self] _ in
             self?.refreshCountdown()
         }
         countdownTicker = ticker
-        countdownTickerPhase = phase
+        countdownTick = tick
         RunLoop.main.add(ticker, forMode: .common)
     }
 

@@ -175,11 +175,11 @@ enum CountdownClock {
         nextTick(inPhaseWith: timer.fireDate, after: date)
     }
 
-    /// The first instant at or after `date` that is a whole number of seconds
-    /// from `phase`, whether `phase` is still ahead (a fire date) or already
-    /// behind (the moment a timer finished).
-    static func nextTick(inPhaseWith phase: Date, after date: Date) -> Date {
-        let offset = phase.timeIntervalSince(date)
-        return date.addingTimeInterval(offset - offset.rounded(.down))
+    /// The first instant at or after `date` that is a whole number of
+    /// intervals from `phase`, whether `phase` is still ahead (a fire date)
+    /// or already behind (the moment a timer finished).
+    static func nextTick(inPhaseWith phase: Date, after date: Date, every interval: TimeInterval = 1) -> Date {
+        let offset = phase.timeIntervalSince(date) / interval
+        return date.addingTimeInterval((offset - offset.rounded(.down)) * interval)
     }
 }

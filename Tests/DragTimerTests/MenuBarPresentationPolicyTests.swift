@@ -135,6 +135,15 @@ final class MenuBarPresentationPolicyTests: XCTestCase {
         XCTAssertEqual(MenuBarCountdown.overtimeText(since: finished, at: tick.addingTimeInterval(0.001)), "+0:03")
     }
 
+    func testMinuteTicksLandOnWholeMinutesSinceTheTimerFinished() {
+        let finished = Date(timeIntervalSinceReferenceDate: 1_000.25)
+
+        let tick = CountdownClock.nextTick(inPhaseWith: finished, after: finished.addingTimeInterval(130), every: 60)
+
+        XCTAssertEqual(tick.timeIntervalSince(finished), 180, accuracy: 0.000_001)
+        XCTAssertEqual(MenuBarCountdown.finishedAgoText(since: finished, at: tick), "3 min ago")
+    }
+
     private func expiry(label: String, expiredAt: Date) -> PendingExpiry {
         PendingExpiry(
             timer: timer(label: label, fireDate: expiredAt, now: expiredAt.addingTimeInterval(-300)),
