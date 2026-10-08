@@ -678,15 +678,13 @@ final class TimerEngine: ObservableObject {
 
         if activeAudioExpiryID == expiry.id {
             // Answering the timer that is sounding ends its alert, not the
-            // turn of those waiting behind it. With nobody waiting, an
-            // unanswered looping alarm takes over, since it is meant to be
-            // heard until it is stopped; a one-shot that has already had its
-            // alert is not played again.
+            // turn of those waiting behind it. Nothing that is not waiting
+            // is started: a timer that has had its alert, or was silenced,
+            // stays quiet.
             audioPlayer.stop()
             activeAlert = nil
             activeAudioExpiryID = nil
             soundNextWaitingAlert()
-            chooseAudioExpiry(from: pendingExpiries.filter(\.timer.loop))
         }
         // Commit any child first, then the idempotent history resolution, and
         // remove the pending event last. Launch reconciliation understands
@@ -709,10 +707,11 @@ final class TimerEngine: ObservableObject {
         chooseAudioExpiry(from: arrived)
         guard let sounding = activeAudioExpiryID else { return }
         // One alert speaks for timers that finish in the same instant, but
-        // a name that was asked for is still said: the others that say
-        // theirs go next, ahead of anything that arrived later.
-        let named = arrived.filter { $0.id != sounding && $0.timer.speaksName == true }
-        waitingAudioExpiryIDs.insert(contentsOf: named.map { [$0.id] }, at: 0)
+        // a name that was asked for is still said, and an alarm that loops
+        // is still heard until it is stopped: those of the others go next,
+        // ahead of anything that arrived later.
+        let owed = arrived.filter { $0.id != sounding && ($0.timer.loop || $0.timer.speaksName == true) }
+        waitingAudioExpiryIDs.insert(contentsOf: owed.map { [$0.id] }, at: 0)
     }
 
     private func chooseAudioExpiry(from candidates: [PendingExpiry]) {

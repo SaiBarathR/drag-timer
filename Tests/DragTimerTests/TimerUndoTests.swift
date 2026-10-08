@@ -230,6 +230,12 @@ final class TimerUndoTests: XCTestCase {
         let historyBeforeUndo = try Data(contentsOf: historyURL)
 
         engine.undoLastRemoval()
+        // The first write happened: the timer is back in its file.
+        let written = try JSONDecoder().decode(
+            [TimerRecord].self,
+            from: Data(contentsOf: directory.appendingPathComponent("timers.json"))
+        )
+        XCTAssertEqual(written.map(\.id), [tea.id])
         // The second write never happened.
         try historyBeforeUndo.write(to: historyURL)
 

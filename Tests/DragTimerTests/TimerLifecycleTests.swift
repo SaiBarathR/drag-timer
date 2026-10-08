@@ -570,7 +570,7 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
-    func testAnsweringTheSoundingTimerHandsOverToALoopingAlarmButReplaysNoOneShot() {
+    func testAnsweringTheSoundingTimerReplaysNothingThatHasHadItsAlert() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
         let audio = ControllableAudioSpy()
@@ -583,31 +583,61 @@ final class TimerLifecycleTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         func expiry(_ label: String) -> PendingExpiry { engine.pendingExpiries.first { $0.timer.label == label }! }
 
-        // Tea has had its alert and is still unanswered when Eggs rings.
+        // Tea has had its alert, and Alarm was silenced with Stop sound;
+        // both are still unanswered when Eggs rings and is answered.
         engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        engine.createTimer(duration: 90, options: TimerOptions(label: "Alarm", loop: true))
         engine.createTimer(duration: 120, options: TimerOptions(label: "Eggs"))
         clock.date.addTimeInterval(60)
         engine.processExpiries()
         audio.finish()
-        clock.date.addTimeInterval(60)
+        clock.date.addTimeInterval(30)
+        engine.processExpiries()
+        engine.silenceExpiryAudio()
+        clock.date.addTimeInterval(30)
         engine.processExpiries()
         engine.markExpiryDone(id: expiry("Eggs").id)
-        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
-        XCTAssertNil(engine.activeAlert)
 
-        // Two alarms that loop end together: one sounds, and answering it
-        // hands over to the other, which would otherwise never be heard.
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Alarm", "Eggs"])
+        XCTAssertNil(engine.activeAlert)
+    }
+
+    @MainActor
+    func testEveryLoopingAlarmThatEndsTogetherIsHeardEvenWithATimerQueuedBetween() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func expiry(_ label: String) -> PendingExpiry { engine.pendingExpiries.first { $0.timer.label == label }! }
+
         engine.createTimers(templates: [
             TimerTemplate(duration: 60, options: TimerOptions(label: "Oven", loop: true), origin: .routine),
             TimerTemplate(duration: 60, options: TimerOptions(label: "Hob", loop: true), origin: .routine)
         ])
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Tea"))
         clock.date.addTimeInterval(60)
         engine.processExpiries()
         let first = try! XCTUnwrap(engine.activeAlert?.label)
-        engine.markExpiryDone(id: expiry(first).id)
+        let second = first == "Oven" ? "Hob" : "Oven"
+        // Tea comes due while the first alarm is still looping.
+        clock.date.addTimeInterval(1)
+        engine.processExpiries()
 
-        XCTAssertEqual(Set(audio.playedLabels.suffix(2)), ["Oven", "Hob"])
-        XCTAssertEqual(engine.activeAlert?.label, first == "Oven" ? "Hob" : "Oven")
+        // The other alarm is next, ahead of Tea, and loops in its turn.
+        engine.markExpiryDone(id: expiry(first).id)
+        XCTAssertEqual(audio.playedLabels, [first, second])
+        XCTAssertEqual(engine.activeAlert?.label, second)
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, [first, second], "A looping alarm does not end by itself")
+
+        engine.markExpiryDone(id: expiry(second).id)
+        XCTAssertEqual(audio.playedLabels, [first, second, "Tea"])
     }
 
     @MainActor
