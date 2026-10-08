@@ -64,6 +64,87 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testAdjustTimeMovesTheEndBothWaysAndKeepsThePlannedDuration() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Focus"))
+        fixture.clock.date.addTimeInterval(100)
+
+        fixture.engine.adjustTime(id: timer.id, by: 60)
+        XCTAssertEqual(fixture.engine.timers.first?.remaining(at: fixture.clock.date), 560)
+        fixture.engine.adjustTime(id: timer.id, by: -60)
+        fixture.engine.adjustTime(id: timer.id, by: -60)
+        XCTAssertEqual(fixture.engine.timers.first?.remaining(at: fixture.clock.date), 440)
+        XCTAssertEqual(fixture.engine.timers.first?.resetDuration, 600)
+
+        fixture.clock.date.addTimeInterval(439)
+        fixture.engine.processExpiries()
+        XCTAssertTrue(fixture.engine.pendingExpiries.isEmpty)
+        fixture.clock.date.addTimeInterval(1)
+        fixture.engine.processExpiries()
+        XCTAssertEqual(fixture.engine.pendingExpiries.first?.timer.id, timer.id)
+    }
+
+    @MainActor
+    func testAdjustTimeNeverEndsATimerAndKeepsAPausedTimerPaused() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let short = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Short"))
+        let paused = fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Paused"))
+        fixture.engine.pause(id: paused.id)
+
+        fixture.engine.adjustTime(id: short.id, by: -60)
+        fixture.engine.adjustTime(id: paused.id, by: -60)
+        fixture.engine.adjustTime(id: paused.id, by: -300)
+
+        let timers = fixture.engine.timers
+        XCTAssertEqual(timers.first { $0.id == short.id }?.remaining(at: fixture.clock.date), 60)
+        XCTAssertEqual(timers.first { $0.id == paused.id }?.pausedRemaining, 240)
+        XCTAssertTrue(fixture.engine.historyEntries.isEmpty)
+    }
+
+    @MainActor
+    func testSetRemainingRestartsTheCountdownAtANewPlannedLength() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 1_800, options: TimerOptions(label: "Meant twenty"))
+        fixture.clock.date.addTimeInterval(300)
+
+        fixture.engine.setRemaining(id: timer.id, to: 1_200)
+
+        let retimed = fixture.engine.timers.first
+        XCTAssertEqual(retimed?.remaining(at: fixture.clock.date), 1_200)
+        XCTAssertEqual(retimed?.resetDuration, 1_200)
+        XCTAssertEqual(retimed?.progress(at: fixture.clock.date), 0)
+        XCTAssertEqual(retimed?.label, "Meant twenty")
+
+        fixture.clock.date.addTimeInterval(600)
+        fixture.engine.reset(id: timer.id)
+        XCTAssertEqual(fixture.engine.timers.first?.remaining(at: fixture.clock.date), 1_200)
+
+        fixture.clock.date.addTimeInterval(1_200)
+        fixture.engine.processExpiries()
+        XCTAssertEqual(fixture.engine.historyEntries.first?.plannedDuration, 1_200)
+    }
+
+    @MainActor
+    func testSetRemainingKeepsAPausedTimerPausedAndStaysWithinADay() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Paused"))
+        fixture.engine.pause(id: timer.id)
+
+        fixture.engine.setRemaining(id: timer.id, to: 90)
+        XCTAssertEqual(fixture.engine.timers.first?.pausedRemaining, 90)
+        XCTAssertEqual(fixture.engine.timers.first?.resetDuration, 90)
+
+        fixture.engine.setRemaining(id: timer.id, to: 100 * 3_600)
+        XCTAssertEqual(fixture.engine.timers.first?.pausedRemaining, 24 * 3_600)
+        fixture.engine.setRemaining(id: UUID(), to: 60)
+        XCTAssertEqual(fixture.engine.timers.count, 1)
+    }
+
+    @MainActor
     func testRenameAndDiscardActOnTheRunningTimerWithoutHistory() {
         let fixture = makeFixture()
         defer { fixture.cleanup() }

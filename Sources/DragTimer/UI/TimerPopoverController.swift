@@ -332,8 +332,11 @@ private struct TimerListView: View {
             }
         }
         .sheet(item: $timerBeingEdited) { timer in
-            TimerEditorView(timer: timer) { updatedTimer in
+            TimerEditorView(timer: timer) { updatedTimer, newTimeLeft in
                 timerEngine.update(updatedTimer)
+                if let newTimeLeft {
+                    timerEngine.setRemaining(id: updatedTimer.id, to: newTimeLeft)
+                }
             }
         }
     }
@@ -573,7 +576,7 @@ private struct TimerListView: View {
                                 : timerEngine.pause(id: timer.id)
                         },
                         onReset: { timerEngine.reset(id: timer.id) },
-                        onAddTime: { timerEngine.addTime(id: timer.id) },
+                        onAdjustTime: { timerEngine.adjustTime(id: timer.id, by: $0) },
                         onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
@@ -733,7 +736,7 @@ private struct TimerRow: View {
     let onPin: () -> Void
     let onPauseResume: () -> Void
     let onReset: () -> Void
-    let onAddTime: () -> Void
+    let onAdjustTime: (TimeInterval) -> Void
     let onDone: () -> Void
     let onCancel: () -> Void
 
@@ -796,7 +799,15 @@ private struct TimerRow: View {
                     Button("Edit timer", action: onEdit)
                     Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
                     Button("Reset timer", action: onReset)
-                    Button("Add \(timer.snoozeMinutes) min", action: onAddTime)
+                    Divider()
+                    Button("Add 1 min") { onAdjustTime(60) }
+                    if timer.snoozeMinutes != 1 {
+                        Button("Add \(timer.snoozeMinutes) min") {
+                            onAdjustTime(TimeInterval(timer.snoozeMinutes * 60))
+                        }
+                    }
+                    Button("Subtract 1 min") { onAdjustTime(-60) }
+                        .disabled(timer.remaining(at: now) <= 60)
                     Divider()
                     Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)
@@ -852,14 +863,25 @@ private struct TimerEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     let timer: TimerRecord
-    let onSave: (TimerRecord) -> Void
+    /// The second value is a new time left, or nil when it was not edited:
+    /// the countdown kept running while the sheet was open, and saving a
+    /// new name must not wind it back.
+    let onSave: (TimerRecord, TimeInterval?) -> Void
+    private let openedTimeLeftText: String
 
     @State private var options: TimerOptions
+    @State private var timeLeftText: String
 
-    init(timer: TimerRecord, onSave: @escaping (TimerRecord) -> Void) {
+    init(timer: TimerRecord, onSave: @escaping (TimerRecord, TimeInterval?) -> Void) {
         self.timer = timer
         self.onSave = onSave
+        openedTimeLeftText = DurationField.text(for: timer.remaining().rounded(.up))
         _options = State(initialValue: timer.options)
+        _timeLeftText = State(initialValue: openedTimeLeftText)
+    }
+
+    private var editedTimeLeft: TimeInterval? {
+        timeLeftText == openedTimeLeftText ? nil : DurationInput.parse(timeLeftText)
     }
 
     var body: some View {
@@ -874,6 +896,7 @@ private struct TimerEditorView: View {
                 // would hide every line but the last.
                 TextField("Label", text: $options.label, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
+                DurationField(title: "Time left", text: $timeLeftText)
                 TimerOptionFields(options: $options)
             }
             .padding(.horizontal, 20)
@@ -885,10 +908,12 @@ private struct TimerEditorView: View {
                 Button("Save changes") {
                     var updated = timer
                     updated.apply(options)
-                    onSave(updated)
+                    onSave(updated, editedTimeLeft)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                // An untouched field never blocks saving the other fields.
+                .disabled(timeLeftText != openedTimeLeftText && DurationInput.parse(timeLeftText) == nil)
             }
             .padding(20)
         }

@@ -15,7 +15,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Start a timer by typing its length, down to seconds, or the time of day it should ring.
 - Create labeled, colored, reorderable Quick start presets with their own sound and notification behavior.
 - Save named routines such as Pomodoro or Morning routine and launch all of their timers together.
-- Pause, resume, reset, edit, add time to, cancel, or mark timers done early from the menu-bar popover.
+- Pause, resume, reset, edit, add or subtract time, set a new time left, cancel, or mark timers done early from the menu-bar popover.
 - Snooze, restart, silence, or mark a finished timer done without losing other simultaneous expiries.
 - Stop every active timer at once.
 - Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
@@ -61,6 +61,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - Right-click the menu-bar icon for Timer History, Settings and Quit.
 - Click a routine in the compact Routines strip to start every timer snapshot in that routine at once. The launched timers remain independently controllable.
 - Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
+- To change how long a running timer has left, use **Add 1 min**, **Add N min** (its snooze length) or **Subtract 1 min** in the `…` menu; these leave its planned length alone, so Reset still returns to what was set. To set an exact time, choose **Edit timer** and type it into **Time left**: the countdown starts again at that length, which becomes the planned length.
 - Click the checkmark beside a running timer, or choose **Mark done** in the `…` menu, to finish it early. It is recorded in history as completed and never rings.
 - At expiry, use **Snooze**, **Restart**, or **Mark done**. The speaker button silences audio without resolving the expiry card.
 - Click **Stop all** at the bottom of the popover to cancel every active timer and stop ringing audio. Existing expiry cards still require an explicit action.

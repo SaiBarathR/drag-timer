@@ -38,15 +38,16 @@ struct TimerOptionFields: View {
 /// every keystroke, so Save always sees what is in the field; a formatted
 /// number field commits only on Return or when focus leaves it.
 struct DurationField: View {
+    var title = "Duration"
     @Binding var text: String
 
     var body: some View {
-        LabeledContent("Duration") {
+        LabeledContent(title) {
             HStack(spacing: 8) {
                 TextField("25m, 90s, 1h 30m", text: $text)
                     .labelsHidden()
                     .frame(width: 110)
-                    .accessibilityLabel("Duration")
+                    .accessibilityLabel(title)
                 if let duration = DurationInput.parse(text) {
                     Text(DurationText.planned(duration))
                         .foregroundStyle(.secondary)

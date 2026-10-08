@@ -210,12 +210,36 @@ final class TimerEngine: ObservableObject {
     /// is untouched, so Reset still returns to what was originally set, and a
     /// paused timer stays paused. Expiry-card snooze uses `snoozeExpiry(id:)`.
     func addTime(id: UUID) {
-        guard var timer = timers.first(where: { $0.id == id }) else { return }
-        let extra = TimeInterval(timer.snoozeMinutes * 60)
+        guard let timer = timers.first(where: { $0.id == id }) else { return }
+        adjustTime(id: id, by: TimeInterval(timer.snoozeMinutes * 60))
+    }
+
+    /// Moves an active timer's end later or earlier. Like `addTime(id:)` it
+    /// leaves the planned duration and a pause alone. A change that would
+    /// leave less than a second to run is ignored; ending a timer early is
+    /// what Mark done and Cancel are for.
+    func adjustTime(id: UUID, by change: TimeInterval) {
+        guard var timer = timers.first(where: { $0.id == id }),
+              timer.remaining(at: now()) + change >= 1 else { return }
         if let remaining = timer.pausedRemaining {
-            timer.pausedRemaining = remaining + extra
+            timer.pausedRemaining = remaining + change
         } else {
-            timer.fireDate = timer.fireDate.addingTimeInterval(extra)
+            timer.fireDate = timer.fireDate.addingTimeInterval(change)
+        }
+        update(timer)
+    }
+
+    /// Starts an active timer's countdown again at a new length. That length
+    /// becomes its planned duration, so Reset, the progress ring and history
+    /// all follow it. A paused timer stays paused.
+    func setRemaining(id: UUID, to duration: TimeInterval) {
+        guard var timer = timers.first(where: { $0.id == id }) else { return }
+        let duration = Self.clamped(duration)
+        timer.originalDuration = duration
+        if timer.isPaused {
+            timer.pausedRemaining = duration
+        } else {
+            timer.fireDate = now().addingTimeInterval(duration)
         }
         update(timer)
     }
