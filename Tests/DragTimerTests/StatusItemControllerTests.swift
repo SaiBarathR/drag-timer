@@ -181,6 +181,34 @@ final class StatusItemControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testFinishedTimerHoldsTheMenuBarUntilItIsAnswered() throws {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = StatusItemController(
+            timerEngine: fixture.engine,
+            settings: fixture.settings,
+            onPopoverRequested: { _, _ in }
+        )
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        let finishedAt = timer.fireDate.addingTimeInterval(1)
+
+        fixture.engine.processExpiries(at: finishedAt)
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+        controller.refreshCountdownForTesting(at: finishedAt.addingTimeInterval(135))
+
+        XCTAssertEqual(controller.currentWidth, StatusItemGeometry.width(for: "+2:15"))
+        XCTAssertEqual(
+            controller.accessibilityLabelForTesting,
+            "Drag Timer, Tea finished 2 min ago"
+        )
+
+        fixture.engine.markExpiryDone(id: try XCTUnwrap(fixture.engine.currentExpiry).id)
+        XCTAssertEqual(controller.currentWidth, 32)
+        XCTAssertEqual(controller.accessibilityLabelForTesting, "Drag Timer, No running timers")
+    }
+
+    @MainActor
     private func makeFixture() -> Fixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("DragTimerTests-\(UUID().uuidString)", isDirectory: true)
