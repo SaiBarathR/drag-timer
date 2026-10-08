@@ -51,8 +51,10 @@ final class TimerEngine: ObservableObject {
     private let scheduler: DispatchSourceTimer
     private var wakeObserver: NSObjectProtocol?
     private var activeAudioExpiryID: UUID?
-    /// Expiries that arrived while another alert was sounding.
-    private var waitingAudioExpiryIDs: Set<UUID> = []
+    /// Expiries that arrived while another alert was sounding, oldest first.
+    /// Those that arrived together are one entry, as they would have shared
+    /// one alert had nothing been sounding.
+    private var waitingAudioExpiryIDs: [[UUID]] = []
     private var didRequestNotificationAuthorization = false
     private var permissionObservation: AnyCancellable?
     private var undoExpiry: DispatchWorkItem?
@@ -692,7 +694,7 @@ final class TimerEngine: ObservableObject {
         guard activeAudioExpiryID == nil else {
             // Heard when the alert that is sounding now is over, so that a
             // timer ending a second or two after another is not silent.
-            waitingAudioExpiryIDs.formUnion(candidates.map(\.id))
+            waitingAudioExpiryIDs.append(candidates.map(\.id))
             return
         }
         let candidate = candidates.last(where: { $0.timer.loop }) ?? candidates.last
@@ -706,9 +708,12 @@ final class TimerEngine: ObservableObject {
         guard activeAlert?.loop != true else { return }
         activeAudioExpiryID = nil
         activeAlert = nil
-        let waiting = pendingExpiries.filter { waitingAudioExpiryIDs.contains($0.id) }
-        waitingAudioExpiryIDs.removeAll()
-        chooseAudioExpiry(from: waiting)
+        // One arrival per alert, in the order they came; the rest keep
+        // waiting. An expiry answered in the meantime is no longer pending.
+        while activeAudioExpiryID == nil, !waitingAudioExpiryIDs.isEmpty {
+            let arrived = waitingAudioExpiryIDs.removeFirst()
+            chooseAudioExpiry(from: pendingExpiries.filter { arrived.contains($0.id) })
+        }
     }
 
     /// Internal for deterministic notification-action lifecycle tests.

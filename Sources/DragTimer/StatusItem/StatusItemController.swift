@@ -219,7 +219,7 @@ final class StatusItemController: NSObject {
             // The count-up changes every second. Where a mode has no room
             // for it, only "2 min ago" in the tooltip and the label changes.
             let showsCountUp = presentation.requestedMode != .count && presentation.text != nil
-            return Tick(phase: finished.expiredAt, interval: showsCountUp ? 1 : 60)
+            return Tick(phase: finished.dueAt, interval: showsCountUp ? 1 : 60)
         }
         guard presentation.requestedMode != .count,
               let timer = presentation.timer, !timer.isPaused else { return nil }
@@ -253,7 +253,7 @@ final class StatusItemController: NSObject {
     private func accessibilityDescription(for presentation: MenuBarPresentation, at date: Date) -> String {
         let finished = presentation.finished.map { finished in
             let others = finished.count > 1 ? ", and \(finished.count - 1) more finished" : ""
-            return "\(finished.label) finished \(MenuBarCountdown.finishedAgoText(since: finished.expiredAt, at: date))\(others)"
+            return "\(finished.label) finished \(MenuBarCountdown.finishedAgoText(since: finished.dueAt, at: date))\(others)"
         }
         switch presentation.requestedMode {
         case .count:

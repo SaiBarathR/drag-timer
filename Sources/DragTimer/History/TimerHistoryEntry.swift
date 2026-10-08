@@ -63,6 +63,10 @@ struct PendingExpiry: Codable, Identifiable, Equatable {
         self.timer = timer
         self.expiredAt = expiredAt
     }
+
+    /// When the timer was due. `expiredAt` is when the app got to it, which
+    /// is later if the Mac slept through the end or the app was not running.
+    var dueAt: Date { min(expiredAt, timer.fireDate) }
 }
 
 struct TimerHistoryInsights: Equatable {

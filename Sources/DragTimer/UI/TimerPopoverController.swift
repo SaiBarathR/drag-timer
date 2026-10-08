@@ -506,7 +506,7 @@ private struct TimerListView: View {
                         .lineLimit(2)
                     // Re-read on each whole minute since it finished, and
                     // only while the popover is on screen.
-                    TimelineView(.periodic(from: expiry.expiredAt, by: 60)) { context in
+                    TimelineView(.periodic(from: expiry.dueAt, by: 60)) { context in
                         Text(expiryCaption(for: expiry, at: context.date))
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -542,7 +542,7 @@ private struct TimerListView: View {
     }
 
     private func expiryCaption(for expiry: PendingExpiry, at date: Date) -> String {
-        let ago = MenuBarCountdown.finishedAgoText(since: expiry.expiredAt, at: date)
+        let ago = MenuBarCountdown.finishedAgoText(since: expiry.dueAt, at: date)
         let caption = ago.prefix(1).uppercased() + ago.dropFirst()
         let count = timerEngine.pendingExpiries.count
         return count > 1 ? "\(caption) · 1 of \(count)" : caption

@@ -501,6 +501,57 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testEveryTimerThatFinishesDuringAnAlertIsHeardInTheOrderItArrived() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        engine.createTimer(duration: 60, options: TimerOptions(label: "Tea", speaksName: true))
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Eggs"))
+        engine.createTimer(duration: 62, options: TimerOptions(label: "Toast"))
+        let answered = engine.createTimer(duration: 63, options: TimerOptions(label: "Answered"))
+
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        for _ in 0..<3 {
+            clock.date.addTimeInterval(1)
+            engine.processExpiries()
+        }
+        XCTAssertEqual(audio.playedLabels, ["Tea"])
+        // Answered before its turn: it has nothing left to say.
+        engine.markExpiryDone(id: engine.pendingExpiries.first { $0.timer.id == answered.id }!.id)
+
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+        XCTAssertNil(engine.activeAlert)
+    }
+
+    @MainActor
+    func testATimerProcessedLateKeepsTheTimeItWasDue() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Slept through"))
+
+        // The Mac woke half an hour after the timer was due.
+        fixture.clock.date.addTimeInterval(60 + 30 * 60)
+        fixture.engine.processExpiries()
+
+        let expiry = fixture.engine.pendingExpiries.first
+        XCTAssertEqual(expiry?.expiredAt, fixture.clock.date)
+        XCTAssertEqual(expiry?.dueAt, timer.fireDate)
+    }
+
+    @MainActor
     func testTimersThatFinishTogetherStillRingOnceAndSilencingDropsWaitingAlerts() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
