@@ -28,7 +28,9 @@ struct TimerOptionFields: View {
         }
         LabeledContent("Volume") {
             Slider(value: $options.volume, in: 0...1)
-                .disabled(options.soundName == AlertSound.systemBeep.rawValue)
+                // The spoken name follows this volume even when the beep
+                // does not.
+                .disabled(options.soundName == AlertSound.systemBeep.rawValue && !options.speaksName)
         }
         Toggle("Loop sound", isOn: $options.loop)
         Toggle("Say the timer's name", isOn: $options.speaksName)

@@ -125,7 +125,8 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesiz
             return
         }
         repeatWhileLooping { NSSound.beep() }
-        announce(after: 0.6)
+        // After the first beep, as a one-shot beep is given.
+        announce(after: Self.minimumLoopInterval)
     }
 
     private func repeatWhileLooping(_ replay: @escaping () -> Void) {
