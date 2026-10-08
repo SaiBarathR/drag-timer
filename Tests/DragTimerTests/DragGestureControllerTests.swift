@@ -205,7 +205,7 @@ final class DragGestureControllerTests: XCTestCase {
         XCTAssertEqual(fixture.spy.cancelKey?.isRegistered, false)
         fixture.spy.cancelKey?.onPress?()
         fixture.spy.driver?.fireFrame()
-        wait(0.05)
+        waitForPrompt(fixture)
 
         XCTAssertEqual(fixture.engine.timers.map(\.resetDuration), [300])
         XCTAssertEqual(fixture.spy.promptRequests.count, 1)
@@ -269,7 +269,7 @@ final class DragGestureControllerTests: XCTestCase {
 
         // A second drag is ignored while the prompt is pending.
         fixture.controller.begin(origin: origin, pointer: origin, timestamp: 2)
-        wait(0.05)
+        waitForPrompt(fixture)
 
         XCTAssertEqual(fixture.spy.promptRequests.map(\.label), ["Timer"])
         XCTAssertEqual(fixture.spy.promptRequests.first?.fireDate, fixture.engine.timers.first?.fireDate)
@@ -288,7 +288,7 @@ final class DragGestureControllerTests: XCTestCase {
 
         drag(fixture, pulled: [88])
         fixture.spy.driver?.fireFrame()
-        wait(0.5)
+        waitForPrompt(fixture)
 
         XCTAssertEqual(fixture.spy.promptRequests.count, 1)
         XCTAssertEqual(fixture.spy.mainQueueDrainedDuringPrompt, true)
@@ -327,7 +327,7 @@ final class DragGestureControllerTests: XCTestCase {
 
         drag(fixture, pulled: [88])
         fixture.spy.driver?.fireFrame()
-        wait(0.05)
+        waitForPrompt(fixture)
 
         XCTAssertTrue(fixture.engine.timers.isEmpty)
         XCTAssertTrue(fixture.engine.historyEntries.isEmpty)
@@ -340,10 +340,10 @@ final class DragGestureControllerTests: XCTestCase {
 
         drag(fixture, pulled: [88])
         fixture.spy.driver?.fireFrame()
-        wait(0.05)
+        waitForPrompt(fixture)
         drag(fixture, pulled: [28])
         fixture.spy.driver?.fireFrame()
-        wait(0.05)
+        waitForPrompt(fixture, count: 2)
 
         XCTAssertEqual(fixture.engine.timers.map(\.resetDuration).sorted(), [120, 300])
     }
@@ -361,6 +361,17 @@ final class DragGestureControllerTests: XCTestCase {
         }
         // Released a second later, so no preset carries momentum.
         fixture.controller.end(pointer: pointer(pulled: distances.last ?? 0), timestamp: 2)
+    }
+
+    /// Runs the run loop until the name prompt has been asked for. A run-loop
+    /// timer opens it, and a CI machine can hold that timer back for longer
+    /// than any fixed wait worth writing: the test process is an application
+    /// with no window on screen, which macOS is free to throttle.
+    private func waitForPrompt(_ fixture: Fixture, count: Int = 1) {
+        let deadline = Date().addingTimeInterval(10)
+        while fixture.spy.promptRequests.count < count, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
     }
 
     /// Always at least one real pass of the run loop. On a stalled CI machine
