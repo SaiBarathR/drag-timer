@@ -193,14 +193,22 @@ final class DragGestureController {
     func end(pointer: CGPoint, timestamp: TimeInterval) {
         guard state == .tracking, let origin, var physics else { return }
         cursor = pointer
+        // Escape went down a moment before the button came up, and its
+        // callback has not run yet: the key was taken, so honour it.
+        if cancelKey?.wasPressed == true {
+            finish()
+            return
+        }
         cancelKey?.unregister()
 
         let dx = pointer.x - origin.x
         let dy = pointer.y - origin.y
         let finalDistance = hypot(dx, dy)
         // Let go back on the icon after pulling away: no timer, and no
-        // popover either, which is what a plain click is for.
-        if didMoveEnough, Self.isOnIcon(distance: finalDistance, wasOnIcon: isCancelling) {
+        // popover either, which is what a plain click is for. Stored, so
+        // that a release off the icon also clears it for the settle frames.
+        isCancelling = didMoveEnough && Self.isOnIcon(distance: finalDistance, wasOnIcon: isCancelling)
+        if isCancelling {
             finish()
             return
         }

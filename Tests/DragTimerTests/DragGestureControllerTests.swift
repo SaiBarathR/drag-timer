@@ -158,6 +158,41 @@ final class DragGestureControllerTests: XCTestCase {
         XCTAssertEqual(fixture.popoverRequests(), 0)
     }
 
+    func testEscapePressedJustBeforeReleaseStillCancels() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        fixture.controller.drag(pointer: pointer(pulled: 88), timestamp: 0.1)
+        fixture.spy.cancelKey?.pressWithoutDelivering()
+        fixture.controller.end(pointer: pointer(pulled: 88), timestamp: 0.2)
+        fixture.spy.driver?.fireFrame()
+        // The callback arrives after the release and finds nothing to do.
+        fixture.spy.cancelKey?.onPress?()
+
+        XCTAssertTrue(fixture.engine.timers.isEmpty)
+        XCTAssertEqual(fixture.popoverRequests(), 0)
+        XCTAssertEqual(fixture.spy.overlay?.events.last, "hide")
+        XCTAssertEqual(fixture.spy.cancelKey?.isRegistered, false)
+    }
+
+    func testReleasingOffTheIconClearsCancelForTheSettleFrames() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        fixture.settings.applyPreset(.throwable)
+
+        fixture.controller.begin(origin: origin, pointer: origin, timestamp: 0)
+        fixture.controller.drag(pointer: pointer(pulled: 88), timestamp: 0.1)
+        // The last sample before the button comes up is on the icon; the
+        // release itself is reported well off it.
+        fixture.controller.drag(pointer: pointer(pulled: 3), timestamp: 0.2)
+        fixture.controller.end(pointer: pointer(pulled: 88), timestamp: 2)
+        fixture.spy.driver?.fireFrame()
+
+        XCTAssertEqual(fixture.spy.overlay?.lastIsCancelling, false)
+        XCTAssertEqual(fixture.engine.timers.map(\.resetDuration), [300])
+    }
+
     func testEscapeIsGivenBackAtReleaseAndCannotUndoATimer() {
         let fixture = makeFixture(askForLabel: true)
         defer { fixture.cleanup() }
@@ -455,13 +490,25 @@ final class DragGestureControllerTests: XCTestCase {
     private final class CancelKeySpy: DragCancelKeying {
         var onPress: (() -> Void)?
         private(set) var isRegistered = false
+        private(set) var wasPressed = false
 
-        func register() { isRegistered = true }
+        func register() {
+            isRegistered = true
+            wasPressed = false
+        }
+
         func unregister() { isRegistered = false }
 
         /// Escape reaches the app only while the key is registered.
         func press() {
-            if isRegistered { onPress?() }
+            guard isRegistered else { return }
+            wasPressed = true
+            onPress?()
+        }
+
+        /// The key has gone down but its callback has not run yet.
+        func pressWithoutDelivering() {
+            if isRegistered { wasPressed = true }
         }
     }
 
