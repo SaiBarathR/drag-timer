@@ -131,7 +131,11 @@ private struct HistoryView: View {
             insight("Snoozed", value: String(insights.snoozedCount))
             insight(
                 "Average plan",
-                value: insights.averagePlannedDuration.map { DurationText.planned($0) } ?? "—"
+                // An average is not a length anyone set; above a minute
+                // its stray seconds are noise.
+                value: insights.averagePlannedDuration.map {
+                    DurationText.planned($0 < 60 ? $0 : ($0 / 60).rounded() * 60)
+                } ?? "—"
             )
             Spacer()
         }
