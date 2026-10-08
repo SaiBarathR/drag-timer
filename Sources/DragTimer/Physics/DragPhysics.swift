@@ -474,12 +474,37 @@ struct DragPhysics {
 enum DurationText {
     /// A planned length as it appears in lists and menus: "5 min", "2 hr",
     /// and "90 min" rather than a mixed form, so it stays short on a button.
+    /// A length that is not whole minutes reads "45 sec" or "1m 30s".
     static func planned(_ duration: TimeInterval) -> String {
-        let minutes = max(1, Int((duration / 60).rounded()))
+        let seconds = max(1, Int(duration.rounded()))
+        guard seconds.isMultiple(of: 60) else {
+            return seconds < 60 ? "\(seconds) sec" : "\(seconds / 60)m \(seconds % 60)s"
+        }
+        let minutes = seconds / 60
         if minutes.isMultiple(of: 60) {
             return "\(minutes / 60) hr"
         }
         return "\(minutes) min"
+    }
+
+    /// A length in a form `DurationInput` reads back to the same value, for
+    /// showing in a field that edits it: "25m", "1h 30m", "1m 30s", "45s".
+    static func typed(_ duration: TimeInterval) -> String {
+        let total = max(1, Int(duration.rounded()))
+        return [(total / 3_600, "h"), (total % 3_600 / 60, "m"), (total % 60, "s")]
+            .filter { $0.0 > 0 }
+            .map { "\($0.0)\($0.1)" }
+            .joined(separator: " ")
+    }
+
+    /// A length as an adjective for VoiceOver: "5-minute", "1-hour",
+    /// "45-second", "1-minute 30-second".
+    static func spoken(_ duration: TimeInterval) -> String {
+        let seconds = max(1, Int(duration.rounded()))
+        if seconds.isMultiple(of: 3_600) { return "\(seconds / 3_600)-hour" }
+        if seconds.isMultiple(of: 60) { return "\(seconds / 60)-minute" }
+        if seconds < 60 { return "\(seconds)-second" }
+        return "\(seconds / 60)-minute \(seconds % 60)-second"
     }
 
     /// Dragging selects whole minutes, so its preview should not imply that a

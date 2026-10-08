@@ -389,7 +389,7 @@ private struct TimerListView: View {
     private var customDurationEntry: some View {
         if typedLength.isOpen {
             HStack(spacing: 7) {
-                TextField("25m, 1h 30m, 1:30", text: $typedLength.text)
+                TextField("25m, 90s, 1:30, @3:30pm", text: $typedLength.text)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                     .focused($customDurationFocused)
@@ -397,31 +397,43 @@ private struct TimerListView: View {
                     .onExitCommand { typedLength.isOpen = false }
                     // Focus cannot be requested until the field is in the view tree.
                     .onAppear { customDurationFocused = true }
-                    .accessibilityLabel("Timer length")
-                // Names the length it read, so "1:30" is seen to mean an hour
-                // and a half before the timer starts.
-                Button(
-                    DurationInput.parse(typedLength.text).map { "Start \(DurationText.planned($0))" } ?? "Start",
-                    action: startCustomDuration
-                )
-                .controlSize(.small)
-                .disabled(DurationInput.parse(typedLength.text) == nil)
+                    .accessibilityLabel("Timer length or time of day")
+                // Names what it read, so "1:30" is seen to mean an hour and a
+                // half, and "@4" to mean 4 PM, before the timer starts.
+                Button(customDurationStartTitle, action: startCustomDuration)
+                    .controlSize(.small)
+                    .disabled(DurationInput.parseEntry(typedLength.text) == nil)
             }
         } else {
             Button {
                 typedLength.isOpen = true
             } label: {
-                Label("Other length…", systemImage: "keyboard")
+                Label("Other length or time…", systemImage: "keyboard")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .accessibilityHint("Type a timer length such as 25m or 1h 30m")
+            .accessibilityHint("Type a timer length such as 25m or 90s, or a time such as @3:30pm")
+        }
+    }
+
+    private var customDurationStartTitle: String {
+        switch DurationInput.parseEntry(typedLength.text) {
+        case let .length(duration)?: return "Start \(DurationText.planned(duration))"
+        case let .clockTime(date)?: return "Ring at \(TimerDateText.fireTime(for: date))"
+        case nil: return "Start"
         }
     }
 
     private func startCustomDuration() {
-        guard let duration = DurationInput.parse(typedLength.text) else { return }
+        // Read again now: a time of day is further away or nearer than it
+        // was when the title was drawn.
+        let duration: TimeInterval
+        switch DurationInput.parseEntry(typedLength.text) {
+        case let .length(length)?: duration = length
+        case let .clockTime(date)?: duration = date.timeIntervalSinceNow
+        case nil: return
+        }
         timerEngine.createTimer(duration: duration, options: settings.defaultOptions())
         typedLength.text = ""
         typedLength.isOpen = false
@@ -697,16 +709,8 @@ private struct TimerListView: View {
     }
 
     private func quickStartAccessibilityLabel(_ preset: QuickStartPreset) -> String {
-        let minutes = Int((preset.duration / 60).rounded())
-        if minutes >= 60, minutes.isMultiple(of: 60) {
-            let hours = minutes / 60
-            return preset.label.isEmpty
-                ? "a \(hours)-hour timer"
-                : "\(preset.label), \(hours)-hour timer"
-        }
-        return preset.label.isEmpty
-            ? "a \(minutes)-minute timer"
-            : "\(preset.label), \(minutes)-minute timer"
+        let length = DurationText.spoken(preset.duration)
+        return preset.label.isEmpty ? "a \(length) timer" : "\(preset.label), \(length) timer"
     }
 
     private func routineAccessibilityLabel(_ routine: TimerRoutine) -> String {

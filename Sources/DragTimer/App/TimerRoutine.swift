@@ -11,7 +11,7 @@ struct RoutineTimerDefinition: Codable, Identifiable, Equatable {
         options: TimerOptions
     ) {
         self.id = id
-        self.duration = min(max(duration.rounded(), 60), 24 * 60 * 60)
+        self.duration = min(max(duration.rounded(), 1), 24 * 60 * 60)
         self.options = TimerOptions(
             label: options.label.trimmingCharacters(in: .whitespacesAndNewlines),
             soundName: options.soundName,
