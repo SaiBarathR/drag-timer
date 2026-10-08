@@ -125,6 +125,9 @@ private struct GeneralSettingsView: View {
                 Picker("Sound", selection: $settings.defaultSoundName) {
                     ForEach(AlertSound.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
+                .onChange(of: settings.defaultSoundName) { _, soundName in
+                    SoundPreview.play(soundName: soundName, volume: settings.defaultVolume)
+                }
                 HStack {
                     Text("Volume")
                     Slider(value: $settings.defaultVolume, in: 0...1)
@@ -133,6 +136,7 @@ private struct GeneralSettingsView: View {
                         .frame(width: 40, alignment: .trailing)
                 }
                 Toggle("Loop sound until stopped", isOn: $settings.defaultLoop)
+                Toggle("Say the timer's name after the sound", isOn: $settings.defaultSpeaksName)
                 Toggle("Show a notification", isOn: $settings.defaultNotificationsEnabled)
                 Stepper(
                     "Snooze for \(settings.defaultSnoozeMinutes) min",
@@ -370,6 +374,7 @@ private struct PresetsSettingsView: View {
     private func alertSummary(_ preset: QuickStartPreset) -> String {
         var values = [AlertSound(rawValue: preset.alert.soundName)?.displayName ?? preset.alert.soundName]
         if preset.alert.loop { values.append("loops") }
+        if preset.alert.speaksName { values.append("says name") }
         if preset.alert.notify { values.append("notification") }
         return values.joined(separator: ", ")
     }

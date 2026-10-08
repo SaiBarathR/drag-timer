@@ -18,6 +18,9 @@ struct TimerOptionFields: View {
         Picker("Sound", selection: $options.soundName) {
             ForEach(AlertSound.allCases) { Text($0.displayName).tag($0.rawValue) }
         }
+        .onChange(of: options.soundName) { _, soundName in
+            SoundPreview.play(soundName: soundName, volume: options.volume)
+        }
         if options.soundName == AlertSound.systemBeep.rawValue {
             Text("System beep uses your Mac's alert volume.")
                 .font(.caption)
@@ -28,6 +31,7 @@ struct TimerOptionFields: View {
                 .disabled(options.soundName == AlertSound.systemBeep.rawValue)
         }
         Toggle("Loop sound", isOn: $options.loop)
+        Toggle("Say the timer's name", isOn: $options.speaksName)
         Toggle("Show notification", isOn: $options.notify)
         Stepper("Snooze for \(options.snoozeMinutes) min", value: $options.snoozeMinutes, in: 1...60)
     }

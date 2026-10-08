@@ -71,32 +71,42 @@ enum TimerOrigin: String, Codable, Equatable {
 }
 
 enum AlertSound: String, Codable, CaseIterable, Identifiable {
+    // Every raw value but the last is the name of a file in
+    // /System/Library/Sounds, which is where the sound is played from.
+    case basso = "Basso"
+    case blow = "Blow"
+    case bottle = "Bottle"
+    case frog = "Frog"
+    case funk = "Funk"
     case glass = "Glass"
+    case hero = "Hero"
+    case morse = "Morse"
+    case ping = "Ping"
+    case pop = "Pop"
+    case purr = "Purr"
+    case sosumi = "Sosumi"
+    case submarine = "Submarine"
+    case tink = "Tink"
     case systemBeep = "System"
 
     var id: String { rawValue }
 
     var displayName: String {
-        switch self {
-        case .glass:
-            return "Glass"
-        case .systemBeep:
-            return "System beep"
-        }
+        self == .systemBeep ? "System beep" : rawValue
+    }
+
+    /// Nil for the system beep, which macOS plays itself.
+    var fileURL: URL? {
+        guard self != .systemBeep else { return nil }
+        let url = URL(fileURLWithPath: "/System/Library/Sounds/\(rawValue).aiff")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     /// Old builds stored the default as "Pulse" even though the packaged app
-    /// played Glass as its fallback. Keep those saved timers valid while making
-    /// the actual selected sound explicit going forward.
+    /// played Glass as its fallback. Keep those saved timers valid, and fall
+    /// back to Glass for a name this build does not know.
     static func normalizedName(_ rawValue: String) -> String {
-        switch rawValue {
-        case AlertSound.systemBeep.rawValue:
-            return AlertSound.systemBeep.rawValue
-        case AlertSound.glass.rawValue, "Pulse":
-            return AlertSound.glass.rawValue
-        default:
-            return AlertSound.glass.rawValue
-        }
+        (AlertSound(rawValue: rawValue) ?? .glass).rawValue
     }
 }
 
@@ -108,6 +118,8 @@ struct TimerOptions: Codable, Equatable {
     var notify: Bool
     var snoozeMinutes: Int
     var identity: TimerIdentity
+    /// Says "<label> finished" aloud after the sound.
+    var speaksName: Bool
 
     init(
         label: String,
@@ -116,7 +128,8 @@ struct TimerOptions: Codable, Equatable {
         loop: Bool = false,
         notify: Bool = true,
         snoozeMinutes: Int = 5,
-        identity: TimerIdentity = .default
+        identity: TimerIdentity = .default,
+        speaksName: Bool = false
     ) {
         self.label = label
         self.soundName = AlertSound.normalizedName(soundName)
@@ -125,6 +138,25 @@ struct TimerOptions: Codable, Equatable {
         self.notify = notify
         self.snoozeMinutes = max(1, snoozeMinutes)
         self.identity = identity
+        self.speaksName = speaksName
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case label, soundName, volume, loop, notify, snoozeMinutes, identity, speaksName
+    }
+
+    /// Written out so that routines and history saved before `speaksName`
+    /// existed still decode.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        label = try container.decode(String.self, forKey: .label)
+        soundName = try container.decode(String.self, forKey: .soundName)
+        volume = try container.decode(Double.self, forKey: .volume)
+        loop = try container.decode(Bool.self, forKey: .loop)
+        notify = try container.decode(Bool.self, forKey: .notify)
+        snoozeMinutes = try container.decode(Int.self, forKey: .snoozeMinutes)
+        identity = try container.decode(TimerIdentity.self, forKey: .identity)
+        speaksName = try container.decodeIfPresent(Bool.self, forKey: .speaksName) ?? false
     }
 }
 
@@ -146,6 +178,8 @@ struct TimerRecord: Codable, Identifiable, Equatable {
     /// Optional for backward-compatible decoding; `.drag` is the runtime default.
     var origin: TimerOrigin?
     var parentEventID: UUID?
+    /// Optional so timers saved by v1.5.0 and earlier continue to decode.
+    var speaksName: Bool?
 
     init(
         id: UUID = UUID(),
@@ -170,6 +204,7 @@ struct TimerRecord: Codable, Identifiable, Equatable {
         self.identity = options.identity
         self.origin = origin
         self.parentEventID = parentEventID
+        self.speaksName = options.speaksName
     }
 
     /// Replaces everything an editor can change, leaving timing untouched.
@@ -182,6 +217,7 @@ struct TimerRecord: Codable, Identifiable, Equatable {
         notify = options.notify
         snoozeMinutes = max(1, options.snoozeMinutes)
         identity = options.identity
+        speaksName = options.speaksName
     }
 
     var options: TimerOptions {
@@ -192,7 +228,8 @@ struct TimerRecord: Codable, Identifiable, Equatable {
             loop: loop,
             notify: notify,
             snoozeMinutes: snoozeMinutes,
-            identity: resolvedIdentity
+            identity: resolvedIdentity,
+            speaksName: speaksName ?? false
         )
     }
 

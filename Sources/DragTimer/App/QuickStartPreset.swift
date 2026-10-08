@@ -6,19 +6,38 @@ struct PresetAlertOptions: Codable, Equatable {
     var loop: Bool
     var notify: Bool
     var snoozeMinutes: Int
+    var speaksName: Bool
 
     init(
         soundName: String = AlertSound.glass.rawValue,
         volume: Double = 0.8,
         loop: Bool = false,
         notify: Bool = true,
-        snoozeMinutes: Int = 5
+        snoozeMinutes: Int = 5,
+        speaksName: Bool = false
     ) {
         self.soundName = AlertSound.normalizedName(soundName)
         self.volume = min(max(volume, 0), 1)
         self.loop = loop
         self.notify = notify
         self.snoozeMinutes = min(max(snoozeMinutes, 1), 60)
+        self.speaksName = speaksName
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case soundName, volume, loop, notify, snoozeMinutes, speaksName
+    }
+
+    /// Written out so that presets saved before `speaksName` existed still
+    /// decode.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        soundName = try container.decode(String.self, forKey: .soundName)
+        volume = try container.decode(Double.self, forKey: .volume)
+        loop = try container.decode(Bool.self, forKey: .loop)
+        notify = try container.decode(Bool.self, forKey: .notify)
+        snoozeMinutes = try container.decode(Int.self, forKey: .snoozeMinutes)
+        speaksName = try container.decodeIfPresent(Bool.self, forKey: .speaksName) ?? false
     }
 }
 
@@ -29,7 +48,8 @@ extension PresetAlertOptions {
             volume: options.volume,
             loop: options.loop,
             notify: options.notify,
-            snoozeMinutes: options.snoozeMinutes
+            snoozeMinutes: options.snoozeMinutes,
+            speaksName: options.speaksName
         )
     }
 }
@@ -43,7 +63,8 @@ extension TimerOptions {
             loop: alert.loop,
             notify: alert.notify,
             snoozeMinutes: alert.snoozeMinutes,
-            identity: identity
+            identity: identity,
+            speaksName: alert.speaksName
         )
     }
 }
