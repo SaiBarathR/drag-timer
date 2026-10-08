@@ -804,8 +804,11 @@ private struct TimerRow: View {
                             onAdjustTime(TimeInterval(timer.snoozeMinutes * 60))
                         }
                     }
+                    // `now` is the row's last whole-second tick, so up to
+                    // a second more has gone by; the engine needs a second
+                    // left after the minute comes off.
                     Button("Subtract 1 min") { onAdjustTime(-60) }
-                        .disabled(timer.remaining(at: now) <= 60)
+                        .disabled(timer.remaining(at: now) <= 61)
                     Divider()
                     Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)
@@ -865,17 +868,21 @@ private struct TimerEditorView: View {
     /// the countdown kept running while the sheet was open, and saving a
     /// new name must not wind it back.
     let onSave: (TimerRecord, TimeInterval?) -> Void
-    private let openedTimeLeftText: String
 
     @State private var options: TimerOptions
     @State private var timeLeftText: String
+    /// State, not a constant: the list behind the sheet rebuilds this view
+    /// whenever the engine publishes, and a constant would be read from the
+    /// clock again each time and no longer match the untouched field.
+    @State private var openedTimeLeftText: String
 
     init(timer: TimerRecord, onSave: @escaping (TimerRecord, TimeInterval?) -> Void) {
         self.timer = timer
         self.onSave = onSave
-        openedTimeLeftText = DurationField.text(for: timer.remaining().rounded(.up))
+        let timeLeftText = DurationField.text(for: timer.remaining().rounded(.up))
         _options = State(initialValue: timer.options)
-        _timeLeftText = State(initialValue: openedTimeLeftText)
+        _timeLeftText = State(initialValue: timeLeftText)
+        _openedTimeLeftText = State(initialValue: timeLeftText)
     }
 
     private var editedTimeLeft: TimeInterval? {
