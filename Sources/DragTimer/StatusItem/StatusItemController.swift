@@ -203,7 +203,7 @@ final class StatusItemController: NSObject {
             toolTip: description + ". Drag to set another timer or click to view timers.",
             accessibilityLabel: "Drag Timer, \(description)"
         )
-        setCountdownTicker(Self.tick(for: presentation), at: date)
+        setCountdownTicker(Self.tick(for: presentation, at: date), at: date)
     }
 
     private struct Tick: Equatable {
@@ -214,12 +214,16 @@ final class StatusItemController: NSObject {
 
     /// How often what the status item shows or says goes out of date, or nil
     /// when it does not.
-    private static func tick(for presentation: MenuBarPresentation) -> Tick? {
+    private static func tick(for presentation: MenuBarPresentation, at date: Date) -> Tick? {
         if let finished = presentation.finished {
-            // The count-up changes every second. Where a mode has no room
+            // The count-up changes every second for its first hour and
+            // every minute after that ("+1h 5m"). Where a mode has no room
             // for it, only "2 min ago" in the tooltip and the label changes.
-            let showsCountUp = presentation.requestedMode != .count && presentation.text != nil
-            return Tick(phase: finished.dueAt, interval: showsCountUp ? 1 : 60)
+            // A timer left unanswered for days must not cost a wake a second.
+            let showsSeconds = presentation.requestedMode != .count
+                && presentation.text != nil
+                && date.timeIntervalSince(finished.dueAt) < 60 * 60
+            return Tick(phase: finished.dueAt, interval: showsSeconds ? 1 : 60)
         }
         guard presentation.requestedMode != .count,
               let timer = presentation.timer, !timer.isPaused else { return nil }

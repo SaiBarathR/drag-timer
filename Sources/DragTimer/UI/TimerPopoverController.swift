@@ -325,6 +325,13 @@ private struct TimerListView: View {
             isPointerOverList = false
             pendingSettle?.cancel()
         }
+        .onChange(of: timerEngine.undoableRemoval?.id) { _, offered in
+            // The button that was pressed has gone and the offer appears
+            // elsewhere, for ten seconds; VoiceOver has to be told.
+            if offered != nil, let removal = timerEngine.undoableRemoval {
+                AccessibilityNotification.Announcement("\(removal.summary). Undo is available.").post()
+            }
+        }
         .onChange(of: timerEngine.timers.map(\.id)) { previous, current in
             // A timer that rings or is removed while its details are open
             // has nothing left to edit; saving would be dropped unseen.
@@ -691,8 +698,10 @@ private struct TimerListView: View {
 
     private func undoRow(_ removal: TimerRemoval) -> some View {
         HStack(spacing: 8) {
+            // Decoration; VoiceOver would read the symbol as a second "Undo".
             Image(systemName: "arrow.uturn.backward.circle")
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(removal.summary)
                 .font(.caption)
                 .lineLimit(1)

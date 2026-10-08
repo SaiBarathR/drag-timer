@@ -505,7 +505,7 @@ final class TimerEngine: ObservableObject {
         persistPendingExpiries()
         persistHistory()
         persistActiveTimers()
-        chooseAudioExpiry(from: pendingExpiries.filter { expiredIDs.contains($0.timer.id) })
+        startAlert(for: pendingExpiries.filter { expiredIDs.contains($0.timer.id) })
         rearmScheduler()
     }
 
@@ -690,13 +690,25 @@ final class TimerEngine: ObservableObject {
         return child
     }
 
-    private func chooseAudioExpiry(from candidates: [PendingExpiry]) {
+    /// Sounds the alert for expiries that arrived together, or queues it
+    /// behind the one that is sounding now, so that a timer ending a second
+    /// or two after another is not silent.
+    private func startAlert(for arrived: [PendingExpiry]) {
         guard activeAudioExpiryID == nil else {
-            // Heard when the alert that is sounding now is over, so that a
-            // timer ending a second or two after another is not silent.
-            waitingAudioExpiryIDs.append(candidates.map(\.id))
+            waitingAudioExpiryIDs.append(arrived.map(\.id))
             return
         }
+        chooseAudioExpiry(from: arrived)
+        guard let sounding = activeAudioExpiryID else { return }
+        // One alert speaks for timers that finish in the same instant, but
+        // a name that was asked for is still said: the others that say
+        // theirs go next, ahead of anything that arrived later.
+        let named = arrived.filter { $0.id != sounding && $0.timer.speaksName == true }
+        waitingAudioExpiryIDs.insert(contentsOf: named.map { [$0.id] }, at: 0)
+    }
+
+    private func chooseAudioExpiry(from candidates: [PendingExpiry]) {
+        guard activeAudioExpiryID == nil else { return }
         let candidate = candidates.last(where: { $0.timer.loop }) ?? candidates.last
         guard let candidate else { return }
         audioPlayer.play(timer: candidate.timer)
@@ -712,7 +724,7 @@ final class TimerEngine: ObservableObject {
         // waiting. An expiry answered in the meantime is no longer pending.
         while activeAudioExpiryID == nil, !waitingAudioExpiryIDs.isEmpty {
             let arrived = waitingAudioExpiryIDs.removeFirst()
-            chooseAudioExpiry(from: pendingExpiries.filter { arrived.contains($0.id) })
+            startAlert(for: pendingExpiries.filter { arrived.contains($0.id) })
         }
     }
 

@@ -537,6 +537,42 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testTimersThatFinishTogetherEachSayTheNameTheyWereAskedToSay() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        engine.createTimers(templates: [
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Plain"), origin: .routine),
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Tea", speaksName: true), origin: .routine),
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Eggs", speaksName: true), origin: .routine)
+        ])
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Later"))
+
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        clock.date.addTimeInterval(1)
+        engine.processExpiries()
+        XCTAssertEqual(audio.playedLabels.count, 1)
+        for _ in 0..<5 { audio.finish() }
+
+        // One alert stands for the three, and whichever of them it was, the
+        // two names are both said before the timer that came later rings.
+        let together = audio.playedLabels.dropLast()
+        XCTAssertEqual(audio.playedLabels.last, "Later")
+        XCTAssertTrue(Set(together).isSuperset(of: ["Tea", "Eggs"]), "\(audio.playedLabels)")
+        XCTAssertEqual(together.count, together.first == "Plain" ? 3 : 2, "\(audio.playedLabels)")
+        XCTAssertFalse(together.dropFirst().contains("Plain"))
+        XCTAssertNil(engine.activeAlert)
+    }
+
+    @MainActor
     func testATimerProcessedLateKeepsTheTimeItWasDue() {
         let fixture = makeFixture()
         defer { fixture.cleanup() }
