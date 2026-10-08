@@ -363,8 +363,14 @@ final class DragGestureControllerTests: XCTestCase {
         fixture.controller.end(pointer: pointer(pulled: distances.last ?? 0), timestamp: 2)
     }
 
+    /// Always at least one real pass of the run loop. On a stalled CI machine
+    /// the deadline can have gone by before `run(until:)` starts, and it then
+    /// returns without firing the timer the test is waiting for.
     private func wait(_ interval: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(interval))
+        let deadline = Date().addingTimeInterval(interval)
+        repeat {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        } while Date() < deadline
     }
 
     private struct Fixture {
