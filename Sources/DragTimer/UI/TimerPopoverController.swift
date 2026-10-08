@@ -700,8 +700,13 @@ private struct TimerListView: View {
             Spacer()
             Button("Undo") { timerEngine.undoLastRemoval() }
                 .controlSize(.small)
-                // Command-Z belongs to the text while a length is being typed.
-                .keyboardShortcut(typedLength.isOpen ? nil : KeyboardShortcut("z", modifiers: .command))
+                // Command-Z belongs to the text while a length is being typed
+                // or a timer's details are open.
+                .keyboardShortcut(
+                    typedLength.isOpen || timerBeingEdited != nil
+                        ? nil
+                        : KeyboardShortcut("z", modifiers: .command)
+                )
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
