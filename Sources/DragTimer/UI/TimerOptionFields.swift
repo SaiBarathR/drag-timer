@@ -41,6 +41,15 @@ struct TimerOptionFields: View {
     }
 }
 
+/// A volume as a percentage. The slider can rest just above zero, where an
+/// alert is still played, and that must not read as "0%".
+enum VolumeText {
+    static func percent(_ volume: Double) -> String {
+        let percent = Int((min(max(volume, 0), 1) * 100).rounded())
+        return "\(volume > 0 ? max(1, percent) : 0)%"
+    }
+}
+
 /// A length typed as text and read with `DurationInput`, instead of stepping
 /// one minute at a time toward a two-hour timer. A text binding updates on
 /// every keystroke, so Save always sees what is in the field; a formatted

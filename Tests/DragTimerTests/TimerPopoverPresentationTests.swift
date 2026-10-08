@@ -197,6 +197,55 @@ final class TimerPopoverPresentationTests: XCTestCase {
         XCTAssertEqual(controller.typedLengthForTesting.text, "")
     }
 
+    /// Sized only when it was shown, the popover squeezed the timer list to
+    /// nothing, or pushed the presets and the footer out of view, once more
+    /// arrived in it than it had opened with.
+    @MainActor
+    func testAnOpenPopoverGrowsWithWhatArrivesInIt() throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        // A named preset puts the grid in two columns; with a routine as
+        // well, nothing in the popover is left over to absorb new content.
+        fixture.settings.setQuickStartPresets(
+            (1...8).map { QuickStartPreset(duration: TimeInterval($0 * 300)) }
+                + [QuickStartPreset(duration: 45, label: "Quick 45")]
+        )
+        XCTAssertTrue(fixture.settings.addRoutine(TimerRoutine(
+            name: "Two short timers",
+            timers: [RoutineTimerDefinition(duration: 20, options: TimerOptions(label: "First"))]
+        )))
+        let controller = makeController(fixture: fixture)
+        let anchor = makeVisibleAnchorWindow(on: screen)
+        defer { anchor.window?.orderOut(nil) }
+        controller.toggle(relativeTo: anchor, positioningRect: anchor.bounds)
+        runMainLoopBriefly()
+        let opened = controller.currentContentSize
+
+        // A timer finishes, two more start, and cancelling one leaves its
+        // Undo offer: a card, a row and a banner the popover did not have.
+        let finished = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Finished"))
+        fixture.engine.processExpiries(at: finished.fireDate.addingTimeInterval(1))
+        fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Running"))
+        let cancelled = fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Cancelled"))
+        fixture.engine.cancel(id: cancelled.id)
+        let limit = Date().addingTimeInterval(5)
+        repeat {
+            runMainLoopBriefly()
+        } while abs(controller.currentContentSize.height - controller.currentFittingContentSize.height) > 0.5
+            && Date() < limit
+
+        // The empty-state hint gave way to a card, a row and the banner.
+        XCTAssertGreaterThan(controller.currentFittingContentSize.height, opened.height + 40)
+        XCTAssertEqual(
+            controller.currentContentSize.height,
+            controller.currentFittingContentSize.height,
+            accuracy: 0.5
+        )
+        controller.closeForTesting()
+    }
+
     @MainActor
     private func makeVisibleAnchorWindow(on screen: NSScreen) -> NSView {
         let anchorSize = NSSize(width: 32, height: 22)

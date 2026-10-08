@@ -131,7 +131,7 @@ private struct GeneralSettingsView: View {
                 HStack {
                     Text("Volume")
                     Slider(value: $settings.defaultVolume, in: 0...1)
-                    Text("\(Int(settings.defaultVolume * 100))%")
+                    Text(VolumeText.percent(settings.defaultVolume))
                         .foregroundStyle(.secondary)
                         .frame(width: 40, alignment: .trailing)
                 }
@@ -833,7 +833,7 @@ private struct FeelSettingsView: View {
                     .disabled(!snapping || !settings.hapticsEnabled)
             }
             Section {
-                Button("Restore Snappy drag defaults") { settings.applyPreset(.snappy) }
+                Button("Restore Snappy drag defaults") { settings.restoreDragDefaults() }
             }
         }
         .formStyle(.grouped)

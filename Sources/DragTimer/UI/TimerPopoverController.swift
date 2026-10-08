@@ -136,6 +136,12 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                 }
             )
         )
+        // The popover follows its content for as long as it is open. Sized
+        // only when shown, it squeezed the timer list to nothing, or pushed
+        // the presets and the footer out of view, once a finished card, a
+        // new timer or the Undo offer arrived in a popover that had opened
+        // with less in it.
+        hostingController.sizingOptions = [.preferredContentSize]
         popover.contentViewController = hostingController
     }
 
