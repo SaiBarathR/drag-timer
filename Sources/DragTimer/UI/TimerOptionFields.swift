@@ -43,7 +43,7 @@ struct DurationField: View {
     var body: some View {
         LabeledContent("Duration") {
             HStack(spacing: 8) {
-                TextField("25m, 1h 30m", text: $text)
+                TextField("25m, 90s, 1h 30m", text: $text)
                     .labelsHidden()
                     .frame(width: 110)
                     .accessibilityLabel("Duration")
@@ -62,6 +62,6 @@ struct DurationField: View {
     /// How an existing length is shown for editing, in a form the field
     /// reads back to the same value.
     static func text(for duration: TimeInterval) -> String {
-        DurationText.dragSelection(duration)
+        DurationText.typed(duration)
     }
 }
