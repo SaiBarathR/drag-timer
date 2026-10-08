@@ -98,10 +98,34 @@ final class TimerUndoTests: XCTestCase {
 
         fixture.engine.cancel(id: timer.id)
         fixture.clock.date.addTimeInterval(TimerEngine.undoWindow + 1)
+        XCTAssertNotNil(fixture.engine.undoableRemoval, "Still on screen, as after a sleep")
         fixture.engine.undoLastRemoval()
 
         XCTAssertTrue(fixture.engine.timers.isEmpty)
         XCTAssertEqual(fixture.engine.historyEntries.map(\.outcome), [.cancelled])
+        XCTAssertNil(fixture.engine.undoableRemoval, "A dead offer must not stay on screen")
+    }
+
+    @MainActor
+    func testStartingARemovedTimerAgainFromHistoryAnswersTheOffer() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let tea = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Tea"))
+        let other = fixture.engine.createTimer(duration: 900, options: TimerOptions(label: "Other"))
+        fixture.engine.cancel(id: other.id)
+        fixture.engine.cancel(id: tea.id)
+        let teaEntry = fixture.engine.historyEntries.first { $0.sourceTimerID == tea.id }!
+
+        // An older entry does not concern the offer.
+        fixture.engine.restartHistoryEntry(id: fixture.engine.historyEntries.first { $0.sourceTimerID == other.id }!.id)
+        XCTAssertNotNil(fixture.engine.undoableRemoval)
+
+        let again = fixture.engine.restartHistoryEntry(id: teaEntry.id)
+        XCTAssertNil(fixture.engine.undoableRemoval)
+        fixture.engine.undoLastRemoval()
+
+        XCTAssertEqual(fixture.engine.timers.filter { $0.label == "Tea" }.map(\.id), [again?.id])
+        XCTAssertTrue(fixture.engine.historyEntries.contains { $0.id == teaEntry.id })
     }
 
     @MainActor

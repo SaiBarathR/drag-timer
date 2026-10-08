@@ -262,6 +262,48 @@ final class StatusItemControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testAPinOutlivesItsTimerOnlyWhileRemovingItCanBeUndone() {
+        _ = NSApplication.shared
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = StatusItemController(
+            timerEngine: fixture.engine,
+            settings: fixture.settings,
+            onPopoverRequested: { _, _ in }
+        )
+        let tea = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Tea"))
+        let other = fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Other"))
+        fixture.settings.menuBarDisplayMode = .pinned
+        fixture.settings.pinnedTimerID = tea.id
+
+        // Undone: the pin is still there for the timer to come back to.
+        fixture.engine.cancel(id: tea.id)
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+        fixture.engine.undoLastRemoval()
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+        XCTAssertEqual(fixture.engine.timers.count, 2)
+
+        // Stop all, undone, keeps it as well.
+        fixture.engine.cancelAll()
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+        fixture.engine.undoLastRemoval()
+        XCTAssertEqual(fixture.settings.pinnedTimerID, tea.id)
+
+        // Not undone: the pin goes when the offer does.
+        fixture.engine.cancel(id: tea.id)
+        fixture.engine.dismissUndo()
+        XCTAssertNil(fixture.settings.pinnedTimerID)
+
+        // Replaced by a later removal: the same.
+        let again = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Tea"))
+        fixture.settings.pinnedTimerID = again.id
+        fixture.engine.cancel(id: again.id)
+        fixture.engine.cancel(id: other.id)
+        XCTAssertNil(fixture.settings.pinnedTimerID)
+        _ = controller
+    }
+
+    @MainActor
     private func makeFixture() -> Fixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("DragTimerTests-\(UUID().uuidString)", isDirectory: true)

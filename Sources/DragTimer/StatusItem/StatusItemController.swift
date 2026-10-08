@@ -137,14 +137,17 @@ final class StatusItemController: NSObject {
 
     private func observeTimerChanges() {
         timersCancellable = timerEngine.$timers
-            .combineLatest(timerEngine.$pendingExpiries)
-            .sink { [weak self] timers, pendingExpiries in
+            .combineLatest(timerEngine.$pendingExpiries, timerEngine.$undoableRemoval)
+            .sink { [weak self] timers, pendingExpiries, undoableRemoval in
                 // @Published delivers the new value before the stored property is
                 // updated, so use the emitted collections instead of reading the
                 // engine synchronously and briefly rendering stale timer state.
                 guard let self else { return }
+                // A pin outlives its timer only for as long as removing that
+                // timer can still be undone.
                 if let pinnedID = settings.pinnedTimerID,
-                   !timers.contains(where: { $0.id == pinnedID }) {
+                   !timers.contains(where: { $0.id == pinnedID }),
+                   undoableRemoval?.timers.contains(where: { $0.id == pinnedID }) != true {
                     settings.pinnedTimerID = nil
                 }
                 refreshCountdown(using: timers, pendingExpiries: pendingExpiries)

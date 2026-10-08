@@ -227,16 +227,10 @@ final class TimerEngine: ObservableObject {
         }
         if let entry {
             appendHistory(entry)
-        }
-        heap.remove(id: id)
-        timers.removeAll { $0.id == id }
-        notificationService.remove(timerID: id)
-        persistHistory()
-        persistActiveTimers()
-        rearmScheduler()
-        // A discard has no entry and is not offered back: it was asked for
-        // by name, from the prompt that had only just created the timer.
-        if let entry {
+            // Offered before the timer leaves the list, so that an observer
+            // of both never finds it in neither. A discard has no entry and
+            // is not offered back: it was asked for by name, from the prompt
+            // that had only just created the timer.
             offerUndo(TimerRemoval(
                 kind: entry.outcome == .cancelled ? .cancelled : .markedDone,
                 timers: [timer],
@@ -244,15 +238,24 @@ final class TimerEngine: ObservableObject {
                 removedAt: endedAt
             ))
         }
+        heap.remove(id: id)
+        timers.removeAll { $0.id == id }
+        notificationService.remove(timerID: id)
+        persistHistory()
+        persistActiveTimers()
+        rearmScheduler()
     }
 
     /// Puts back what the last Cancel, Mark done or Stop all removed, with
     /// the end times the timers had, and takes their entries out of history.
     /// A timer whose end has passed in the meantime rings at once.
     func undoLastRemoval() {
-        guard let removal = undoableRemoval,
-              now().timeIntervalSince(removal.removedAt) <= Self.undoWindow else { return }
-        dismissUndo()
+        guard let removal = undoableRemoval else { return }
+        guard now().timeIntervalSince(removal.removedAt) <= Self.undoWindow else {
+            // The offer outlived its window, as it can across a sleep.
+            dismissUndo()
+            return
+        }
         let entryIDs = Set(removal.historyEntryIDs)
         historyEntries.removeAll { entryIDs.contains($0.id) }
         requestNotificationAuthorizationOnce()
@@ -260,9 +263,15 @@ final class TimerEngine: ObservableObject {
             timers.append(timer)
             guard !timer.isPaused else { continue }
             heap.insert(timer)
-            notificationService.schedule(timer)
+            // One that is already due rings in the app at once; a banner
+            // scheduled now would arrive after it.
+            if timer.fireDate > now() {
+                notificationService.schedule(timer)
+            }
         }
         sortTimers()
+        // Withdrawn only once the timers are back, for the same observer.
+        dismissUndo()
         // Timers first. Launch treats a timer that also has a history entry
         // as ended, so a crash between the two writes leaves the removal
         // standing instead of losing the timer from both files.
@@ -285,7 +294,9 @@ final class TimerEngine: ObservableObject {
             self.undoableRemoval = nil
         }
         undoExpiry = expiry
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: expiry)
+        // The wall clock, like `removedAt`, so the offer does not outlive
+        // its window by however long the Mac was asleep.
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + Self.undoWindow, execute: expiry)
     }
 
     /// Pushes an active timer back by its snooze length. The planned duration
@@ -359,12 +370,6 @@ final class TimerEngine: ObservableObject {
             entryIDs.append(entry.id)
             notificationService.remove(timerID: timer.id)
         }
-        heap = DeadlineHeap()
-        timers.removeAll()
-        silenceExpiryAudio()
-        persistHistory()
-        persistActiveTimers()
-        rearmScheduler()
         if !stopped.isEmpty {
             offerUndo(TimerRemoval(
                 kind: .stoppedAll,
@@ -373,6 +378,12 @@ final class TimerEngine: ObservableObject {
                 removedAt: endedAt
             ))
         }
+        heap = DeadlineHeap()
+        timers.removeAll()
+        silenceExpiryAudio()
+        persistHistory()
+        persistActiveTimers()
+        rearmScheduler()
     }
 
     func silenceExpiryAudio() {
@@ -398,6 +409,11 @@ final class TimerEngine: ObservableObject {
     @discardableResult
     func restartHistoryEntry(id: UUID) -> TimerRecord? {
         guard let entry = historyEntries.first(where: { $0.id == id }) else { return nil }
+        // Starting a just-removed timer again answers the offer to undo
+        // removing it; otherwise Undo would bring back a second copy.
+        if undoableRemoval?.historyEntryIDs.contains(id) == true {
+            dismissUndo()
+        }
         return createTimer(
             duration: entry.plannedDuration,
             options: entry.optionsSnapshot,
