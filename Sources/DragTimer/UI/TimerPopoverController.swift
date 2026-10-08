@@ -130,9 +130,9 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
                 onOpenHistory: { [weak self] in
                     self?.openHistory()
                 },
+                // The popover stays open: the offer to undo is in it.
                 onStopAll: { [weak self] in
                     self?.timerEngine.cancelAll()
-                    self?.popover.performClose(nil)
                 }
             )
         )
@@ -301,6 +301,11 @@ private struct TimerListView: View {
                     maxHeight: .infinity,
                     alignment: timerEngine.timers.isEmpty ? .center : .top
                 )
+
+            if let removal = timerEngine.undoableRemoval {
+                Divider()
+                undoRow(removal)
+            }
 
             Divider()
             footer
@@ -682,6 +687,24 @@ private struct TimerListView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+    }
+
+    private func undoRow(_ removal: TimerRemoval) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle")
+                .foregroundStyle(.secondary)
+            Text(removal.summary)
+                .font(.caption)
+                .lineLimit(1)
+                .help(removal.summary)
+            Spacer()
+            Button("Undo") { timerEngine.undoLastRemoval() }
+                .controlSize(.small)
+                // Command-Z belongs to the text while a length is being typed.
+                .keyboardShortcut(typedLength.isOpen ? nil : KeyboardShortcut("z", modifiers: .command))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
     }
 
     private func updateRow(_ release: GitHubRelease) -> some View {
