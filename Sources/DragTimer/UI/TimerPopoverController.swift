@@ -321,6 +321,11 @@ private struct TimerListView: View {
             pendingSettle?.cancel()
         }
         .onChange(of: timerEngine.timers.map(\.id)) { previous, current in
+            // A timer that rings or is removed while its details are open
+            // has nothing left to edit; saving would be dropped unseen.
+            if let edited = timerBeingEdited, !current.contains(edited.id) {
+                timerBeingEdited = nil
+            }
             switch TimerListOrderPolicy.settle(
                 from: previous,
                 to: current,
