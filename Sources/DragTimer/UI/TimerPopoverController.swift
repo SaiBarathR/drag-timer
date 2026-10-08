@@ -321,6 +321,11 @@ private struct TimerListView: View {
             pendingSettle?.cancel()
         }
         .onChange(of: timerEngine.timers.map(\.id)) { previous, current in
+            // A timer that rings or is removed while its details are open
+            // has nothing left to edit; saving would be dropped unseen.
+            if let edited = timerBeingEdited, !current.contains(edited.id) {
+                timerBeingEdited = nil
+            }
             switch TimerListOrderPolicy.settle(
                 from: previous,
                 to: current,
@@ -332,8 +337,11 @@ private struct TimerListView: View {
             }
         }
         .sheet(item: $timerBeingEdited) { timer in
-            TimerEditorView(timer: timer) { updatedTimer in
+            TimerEditorView(timer: timer) { updatedTimer, newTimeLeft in
                 timerEngine.update(updatedTimer)
+                if let newTimeLeft {
+                    timerEngine.setRemaining(id: updatedTimer.id, to: newTimeLeft)
+                }
             }
         }
     }
@@ -580,7 +588,7 @@ private struct TimerListView: View {
                                 : timerEngine.pause(id: timer.id)
                         },
                         onReset: { timerEngine.reset(id: timer.id) },
-                        onAddTime: { timerEngine.addTime(id: timer.id) },
+                        onAdjustTime: { timerEngine.adjustTime(id: timer.id, by: $0) },
                         onDone: { timerEngine.markDone(id: timer.id) },
                         onCancel: { timerEngine.cancel(id: timer.id) }
                     )
@@ -740,7 +748,7 @@ private struct TimerRow: View {
     let onPin: () -> Void
     let onPauseResume: () -> Void
     let onReset: () -> Void
-    let onAddTime: () -> Void
+    let onAdjustTime: (TimeInterval) -> Void
     let onDone: () -> Void
     let onCancel: () -> Void
 
@@ -803,7 +811,19 @@ private struct TimerRow: View {
                     Button("Edit timer", action: onEdit)
                     Button(timer.isPaused ? "Resume timer" : "Pause timer", action: onPauseResume)
                     Button("Reset timer", action: onReset)
-                    Button("Add \(timer.snoozeMinutes) min", action: onAddTime)
+                    Divider()
+                    Button("Add 1 min") { onAdjustTime(60) }
+                    if timer.snoozeMinutes != 1 {
+                        Button("Add \(timer.snoozeMinutes) min") {
+                            onAdjustTime(TimeInterval(timer.snoozeMinutes * 60))
+                        }
+                    }
+                    // The engine needs a second left after the minute
+                    // comes off. For a running timer `now` is the row's
+                    // last whole-second tick, so up to a second more has
+                    // gone by; a paused timer's time left is exact.
+                    Button("Subtract 1 min") { onAdjustTime(-60) }
+                        .disabled(timer.remaining(at: now) <= (timer.isPaused ? 60 : 61))
                     Divider()
                     Button("Mark done", action: onDone)
                     Button("Cancel timer", role: .destructive, action: onCancel)
@@ -859,14 +879,29 @@ private struct TimerEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     let timer: TimerRecord
-    let onSave: (TimerRecord) -> Void
+    /// The second value is a new time left, or nil when it was not edited:
+    /// the countdown kept running while the sheet was open, and saving a
+    /// new name must not wind it back.
+    let onSave: (TimerRecord, TimeInterval?) -> Void
 
     @State private var options: TimerOptions
+    @State private var timeLeftText: String
+    /// State, not a constant: the list behind the sheet rebuilds this view
+    /// whenever the engine publishes, and a constant would be read from the
+    /// clock again each time and no longer match the untouched field.
+    @State private var openedTimeLeftText: String
 
-    init(timer: TimerRecord, onSave: @escaping (TimerRecord) -> Void) {
+    init(timer: TimerRecord, onSave: @escaping (TimerRecord, TimeInterval?) -> Void) {
         self.timer = timer
         self.onSave = onSave
+        let timeLeftText = DurationField.text(for: timer.remaining().rounded(.up))
         _options = State(initialValue: timer.options)
+        _timeLeftText = State(initialValue: timeLeftText)
+        _openedTimeLeftText = State(initialValue: timeLeftText)
+    }
+
+    private var editedTimeLeft: TimeInterval? {
+        timeLeftText == openedTimeLeftText ? nil : DurationInput.parse(timeLeftText)
     }
 
     var body: some View {
@@ -881,6 +916,7 @@ private struct TimerEditorView: View {
                 // would hide every line but the last.
                 TextField("Label", text: $options.label, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
+                DurationField(title: "Time left", text: $timeLeftText, unedited: openedTimeLeftText)
                 TimerOptionFields(options: $options)
             }
             .padding(.horizontal, 20)
@@ -892,10 +928,12 @@ private struct TimerEditorView: View {
                 Button("Save changes") {
                     var updated = timer
                     updated.apply(options)
-                    onSave(updated)
+                    onSave(updated, editedTimeLeft)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                // An untouched field never blocks saving the other fields.
+                .disabled(timeLeftText != openedTimeLeftText && DurationInput.parse(timeLeftText) == nil)
             }
             .padding(20)
         }
