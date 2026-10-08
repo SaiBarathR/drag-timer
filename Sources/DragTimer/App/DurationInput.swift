@@ -124,7 +124,8 @@ extension DurationInput {
         guard parts.count <= 2, let hour = parts.first.flatMap(wholeNumber).map({ Int($0) }) else { return nil }
         var minute = 0
         if parts.count == 2 {
-            guard parts[1].count == 2, let value = wholeNumber(parts[1]), value < 60 else { return nil }
+            let digits = parts[1].trimmingCharacters(in: .whitespaces)
+            guard digits.count == 2, let value = wholeNumber(Substring(digits)), value < 60 else { return nil }
             minute = Int(value)
         }
 

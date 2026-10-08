@@ -70,6 +70,8 @@ final class MenuBarCountdownTests: XCTestCase {
         XCTAssertEqual(DurationText.planned(59), "59 sec")
         XCTAssertEqual(DurationText.planned(90), "1m 30s")
         XCTAssertEqual(DurationText.planned(12.5 * 60), "12m 30s")
+        XCTAssertEqual(DurationText.planned(3_605), "1h 5s")
+        XCTAssertEqual(DurationText.planned(5_415), "1h 30m 15s")
         XCTAssertEqual(DurationText.planned(0.2), "1 sec")
         XCTAssertEqual(DurationText.planned(59.6), "1 min")
     }
@@ -80,6 +82,8 @@ final class MenuBarCountdownTests: XCTestCase {
         XCTAssertEqual(DurationText.spoken(2 * 3_600), "2-hour")
         XCTAssertEqual(DurationText.spoken(45), "45-second")
         XCTAssertEqual(DurationText.spoken(90), "1-minute 30-second")
+        XCTAssertEqual(DurationText.spoken(3_605), "1-hour 5-second")
+        XCTAssertEqual(DurationText.spoken(5_415), "1-hour 30-minute 15-second")
     }
 
     func testCountdownNeverReadsZeroBeforeTheTimerFires() {
