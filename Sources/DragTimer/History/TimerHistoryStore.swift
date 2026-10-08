@@ -47,10 +47,7 @@ struct PendingExpiryStore {
             preserveCorruptFile(at: fileURL)
             return []
         }
-        return values.sorted { lhs, rhs in
-            if lhs.expiredAt != rhs.expiredAt { return lhs.expiredAt < rhs.expiredAt }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
+        return values.sorted(by: PendingExpiry.isOrderedBefore)
     }
 
     func save(_ expiries: [PendingExpiry]) throws {

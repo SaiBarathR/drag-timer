@@ -60,7 +60,7 @@ final class MenuBarPresentationPolicyTests: XCTestCase {
         for mode in [MenuBarDisplayMode.deadline, .pinned] {
             let result = presentation([running], finished: [tea], mode: mode, pinnedID: running.id, at: now)
             XCTAssertEqual(result.text, "+2:15", "\(mode)")
-            XCTAssertEqual(result.finished, MenuBarFinishedState(label: "Tea", expiredAt: tea.expiredAt, count: 1))
+            XCTAssertEqual(result.finished, MenuBarFinishedState(label: "Tea", dueAt: tea.expiredAt, count: 1))
             XCTAssertNil(result.timer)
             XCTAssertTrue(result.urgent)
         }
@@ -76,8 +76,22 @@ final class MenuBarPresentationPolicyTests: XCTestCase {
 
         let result = presentation([], finished: [recent, oldest], mode: .deadline, at: now)
 
-        XCTAssertEqual(result.finished, MenuBarFinishedState(label: "Tea", expiredAt: oldest.expiredAt, count: 2))
+        XCTAssertEqual(result.finished, MenuBarFinishedState(label: "Tea", dueAt: oldest.expiredAt, count: 2))
         XCTAssertEqual(result.text, "+1h 6m")
+    }
+
+    func testATimerTheMacSleptThroughCountsFromWhenItWasDue() {
+        let due = Date(timeIntervalSinceReferenceDate: 1_000)
+        let woke = due.addingTimeInterval(30 * 60)
+        // Due at `due`; the app only got to it when the Mac woke.
+        let slept = PendingExpiry(timer: timer(label: "Laundry", fireDate: due, now: due.addingTimeInterval(-600)), expiredAt: woke)
+
+        let result = presentation([], finished: [slept], mode: .deadline, at: woke.addingTimeInterval(5))
+
+        XCTAssertEqual(slept.dueAt, due)
+        XCTAssertEqual(result.finished?.dueAt, due)
+        XCTAssertEqual(result.text, "+30:05")
+        XCTAssertEqual(MenuBarCountdown.finishedAgoText(since: slept.dueAt, at: woke), "30 min ago")
     }
 
     func testRingAndCountKeepTheirLayoutWhenATimerHasFinished() {

@@ -31,16 +31,16 @@ enum MenuBarCountdown {
     }
 
     /// Time since a timer finished, counting up: "+0:05", "+2:15", "+1h 5m".
-    static func overtimeText(since expiredAt: Date, at date: Date = Date()) -> String {
-        "+" + text(forRemaining: max(0, date.timeIntervalSince(expiredAt)).rounded(.down))
+    static func overtimeText(since dueAt: Date, at date: Date = Date()) -> String {
+        "+" + text(forRemaining: max(0, date.timeIntervalSince(dueAt)).rounded(.down))
     }
 
     /// How long ago a timer finished, in whole minutes: "just now",
     /// "2 min ago", "1 hr 5 min ago", "3 days ago".
-    static func finishedAgoText(since expiredAt: Date, at date: Date = Date()) -> String {
+    static func finishedAgoText(since dueAt: Date, at date: Date = Date()) -> String {
         // Half a second of slack, so a view that re-reads this exactly on the
         // minute never lands a hair short of it.
-        let minutes = Int((max(0, date.timeIntervalSince(expiredAt)) + 0.5) / 60)
+        let minutes = Int((max(0, date.timeIntervalSince(dueAt)) + 0.5) / 60)
         if minutes < 1 { return "just now" }
         if minutes < 60 { return "\(minutes) min ago" }
         let hours = minutes / 60
@@ -53,9 +53,12 @@ enum MenuBarCountdown {
 
 /// The finished timers still waiting for Snooze, Restart or Mark done.
 struct MenuBarFinishedState: Equatable {
-    /// The one that has waited longest, which is also the popover's card.
+    /// The first in the engine's order, which is also the popover's card.
     var label: String
-    var expiredAt: Date
+    /// When that timer was due, which is what the count-up starts from: a
+    /// timer the Mac slept through has been finished since then, not since
+    /// the Mac woke.
+    var dueAt: Date
     var count: Int
 }
 
@@ -94,7 +97,7 @@ enum MenuBarPresentationPolicy {
                 requestedMode: mode,
                 text: mode == .ring
                     ? nil
-                    : MenuBarCountdown.overtimeText(since: finished.expiredAt, at: date),
+                    : MenuBarCountdown.overtimeText(since: finished.dueAt, at: date),
                 timer: nil,
                 runningCount: running.count,
                 usesFallback: false,
@@ -133,12 +136,10 @@ enum MenuBarPresentationPolicy {
     }
 
     private static func finishedState(_ pendingExpiries: [PendingExpiry]) -> MenuBarFinishedState? {
-        let oldest = pendingExpiries.min { lhs, rhs in
-            if lhs.expiredAt != rhs.expiredAt { return lhs.expiredAt < rhs.expiredAt }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
+        // The same order the engine keeps, so this is the popover's card.
+        let oldest = pendingExpiries.min(by: PendingExpiry.isOrderedBefore)
         return oldest.map {
-            MenuBarFinishedState(label: $0.timer.label, expiredAt: $0.expiredAt, count: pendingExpiries.count)
+            MenuBarFinishedState(label: $0.timer.label, dueAt: $0.dueAt, count: pendingExpiries.count)
         }
     }
 

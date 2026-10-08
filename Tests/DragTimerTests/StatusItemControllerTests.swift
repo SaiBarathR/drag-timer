@@ -250,6 +250,12 @@ final class StatusItemControllerTests: XCTestCase {
         // The count-up changes every second; without it only "2 min ago"
         // in the tooltip and the VoiceOver label does.
         XCTAssertEqual(controller.countdownTickIntervalForTesting, 1)
+        // Past an hour the count-up itself reads "+1h 0m" and changes once a
+        // minute. A timer nobody answers must not cost a wake every second.
+        controller.refreshCountdownForTesting(at: timer.fireDate.addingTimeInterval(3_600))
+        XCTAssertEqual(controller.countdownTickIntervalForTesting, 60)
+        controller.refreshCountdownForTesting(at: timer.fireDate.addingTimeInterval(3_599))
+        XCTAssertEqual(controller.countdownTickIntervalForTesting, 1)
         fixture.settings.menuBarDisplayMode = .ring
         controller.refreshCountdownForTesting(at: Date())
         XCTAssertEqual(controller.countdownTickIntervalForTesting, 60)

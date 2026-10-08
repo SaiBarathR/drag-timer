@@ -325,6 +325,13 @@ private struct TimerListView: View {
             isPointerOverList = false
             pendingSettle?.cancel()
         }
+        .onChange(of: timerEngine.undoableRemoval?.id) { _, offered in
+            // The button that was pressed has gone and the offer appears
+            // elsewhere, for ten seconds; VoiceOver has to be told.
+            if offered != nil, let removal = timerEngine.undoableRemoval {
+                AccessibilityNotification.Announcement("\(removal.summary). Undo is available.").post()
+            }
+        }
         .onChange(of: timerEngine.timers.map(\.id)) { previous, current in
             // A timer that rings or is removed while its details are open
             // has nothing left to edit; saving would be dropped unseen.
@@ -506,7 +513,7 @@ private struct TimerListView: View {
                         .lineLimit(2)
                     // Re-read on each whole minute since it finished, and
                     // only while the popover is on screen.
-                    TimelineView(.periodic(from: expiry.expiredAt, by: 60)) { context in
+                    TimelineView(.periodic(from: expiry.dueAt, by: 60)) { context in
                         Text(expiryCaption(for: expiry, at: context.date))
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -542,7 +549,7 @@ private struct TimerListView: View {
     }
 
     private func expiryCaption(for expiry: PendingExpiry, at date: Date) -> String {
-        let ago = MenuBarCountdown.finishedAgoText(since: expiry.expiredAt, at: date)
+        let ago = MenuBarCountdown.finishedAgoText(since: expiry.dueAt, at: date)
         let caption = ago.prefix(1).uppercased() + ago.dropFirst()
         let count = timerEngine.pendingExpiries.count
         return count > 1 ? "\(caption) · 1 of \(count)" : caption
@@ -691,8 +698,10 @@ private struct TimerListView: View {
 
     private func undoRow(_ removal: TimerRemoval) -> some View {
         HStack(spacing: 8) {
+            // Decoration; VoiceOver would read the symbol as a second "Undo".
             Image(systemName: "arrow.uturn.backward.circle")
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(removal.summary)
                 .font(.caption)
                 .lineLimit(1)
@@ -700,8 +709,13 @@ private struct TimerListView: View {
             Spacer()
             Button("Undo") { timerEngine.undoLastRemoval() }
                 .controlSize(.small)
-                // Command-Z belongs to the text while a length is being typed.
-                .keyboardShortcut(typedLength.isOpen ? nil : KeyboardShortcut("z", modifiers: .command))
+                // Command-Z belongs to the text while a length is being typed
+                // or a timer's details are open.
+                .keyboardShortcut(
+                    typedLength.isOpen || timerBeingEdited != nil
+                        ? nil
+                        : KeyboardShortcut("z", modifiers: .command)
+                )
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)

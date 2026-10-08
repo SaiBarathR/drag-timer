@@ -51,8 +51,10 @@ final class TimerEngine: ObservableObject {
     private let scheduler: DispatchSourceTimer
     private var wakeObserver: NSObjectProtocol?
     private var activeAudioExpiryID: UUID?
-    /// Expiries that arrived while another alert was sounding.
-    private var waitingAudioExpiryIDs: Set<UUID> = []
+    /// Expiries that arrived while another alert was sounding, oldest first.
+    /// Those that arrived together are one entry, as they would have shared
+    /// one alert had nothing been sounding.
+    private var waitingAudioExpiryIDs: [[UUID]] = []
     private var didRequestNotificationAuthorization = false
     private var permissionObservation: AnyCancellable?
     private var undoExpiry: DispatchWorkItem?
@@ -503,7 +505,7 @@ final class TimerEngine: ObservableObject {
         persistPendingExpiries()
         persistHistory()
         persistActiveTimers()
-        chooseAudioExpiry(from: pendingExpiries.filter { expiredIDs.contains($0.timer.id) })
+        startAlert(for: pendingExpiries.filter { expiredIDs.contains($0.timer.id) })
         rearmScheduler()
     }
 
@@ -675,8 +677,14 @@ final class TimerEngine: ObservableObject {
         pendingExpiries.remove(at: expiryIndex)
 
         if activeAudioExpiryID == expiry.id {
-            silenceExpiryAudio()
-            chooseAudioExpiry(from: pendingExpiries)
+            // Answering the timer that is sounding ends its alert, not the
+            // turn of those waiting behind it. Nothing that is not waiting
+            // is started: a timer that has had its alert, or was silenced,
+            // stays quiet.
+            audioPlayer.stop()
+            activeAlert = nil
+            activeAudioExpiryID = nil
+            soundNextWaitingAlert()
         }
         // Commit any child first, then the idempotent history resolution, and
         // remove the pending event last. Launch reconciliation understands
@@ -688,13 +696,26 @@ final class TimerEngine: ObservableObject {
         return child
     }
 
-    private func chooseAudioExpiry(from candidates: [PendingExpiry]) {
+    /// Sounds the alert for expiries that arrived together, or queues it
+    /// behind the one that is sounding now, so that a timer ending a second
+    /// or two after another is not silent.
+    private func startAlert(for arrived: [PendingExpiry]) {
         guard activeAudioExpiryID == nil else {
-            // Heard when the alert that is sounding now is over, so that a
-            // timer ending a second or two after another is not silent.
-            waitingAudioExpiryIDs.formUnion(candidates.map(\.id))
+            waitingAudioExpiryIDs.append(arrived.map(\.id))
             return
         }
+        chooseAudioExpiry(from: arrived)
+        guard let sounding = activeAudioExpiryID else { return }
+        // One alert speaks for timers that finish in the same instant, but
+        // a name that was asked for is still said, and an alarm that loops
+        // is still heard until it is stopped: those of the others go next,
+        // ahead of anything that arrived later.
+        let owed = arrived.filter { $0.id != sounding && ($0.timer.loop || $0.timer.speaksName == true) }
+        waitingAudioExpiryIDs.insert(contentsOf: owed.map { [$0.id] }, at: 0)
+    }
+
+    private func chooseAudioExpiry(from candidates: [PendingExpiry]) {
+        guard activeAudioExpiryID == nil else { return }
         let candidate = candidates.last(where: { $0.timer.loop }) ?? candidates.last
         guard let candidate else { return }
         audioPlayer.play(timer: candidate.timer)
@@ -706,9 +727,16 @@ final class TimerEngine: ObservableObject {
         guard activeAlert?.loop != true else { return }
         activeAudioExpiryID = nil
         activeAlert = nil
-        let waiting = pendingExpiries.filter { waitingAudioExpiryIDs.contains($0.id) }
-        waitingAudioExpiryIDs.removeAll()
-        chooseAudioExpiry(from: waiting)
+        soundNextWaitingAlert()
+    }
+
+    /// One arrival per alert, in the order they came; the rest keep waiting.
+    /// An expiry answered in the meantime is no longer pending.
+    private func soundNextWaitingAlert() {
+        while activeAudioExpiryID == nil, !waitingAudioExpiryIDs.isEmpty {
+            let arrived = waitingAudioExpiryIDs.removeFirst()
+            startAlert(for: pendingExpiries.filter { arrived.contains($0.id) })
+        }
     }
 
     /// Internal for deterministic notification-action lifecycle tests.
@@ -814,9 +842,6 @@ final class TimerEngine: ObservableObject {
     }
 
     private func sortPendingExpiries() {
-        pendingExpiries.sort { lhs, rhs in
-            if lhs.expiredAt != rhs.expiredAt { return lhs.expiredAt < rhs.expiredAt }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
+        pendingExpiries.sort(by: PendingExpiry.isOrderedBefore)
     }
 }

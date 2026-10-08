@@ -501,6 +501,197 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testEveryTimerThatFinishesDuringAnAlertIsHeardInTheOrderItArrived() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        engine.createTimer(duration: 60, options: TimerOptions(label: "Tea", speaksName: true))
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Eggs"))
+        engine.createTimer(duration: 62, options: TimerOptions(label: "Toast"))
+        let answered = engine.createTimer(duration: 63, options: TimerOptions(label: "Answered"))
+
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        for _ in 0..<3 {
+            clock.date.addTimeInterval(1)
+            engine.processExpiries()
+        }
+        XCTAssertEqual(audio.playedLabels, ["Tea"])
+        // Answered before its turn: it has nothing left to say.
+        engine.markExpiryDone(id: engine.pendingExpiries.first { $0.timer.id == answered.id }!.id)
+
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+        XCTAssertNil(engine.activeAlert)
+    }
+
+    @MainActor
+    func testAnsweringTheTimerThatIsSoundingGivesTheNextOneItsTurn() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tea = engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Eggs"))
+        engine.createTimer(duration: 62, options: TimerOptions(label: "Toast"))
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        for _ in 0..<2 {
+            clock.date.addTimeInterval(1)
+            engine.processExpiries()
+        }
+
+        // Tea is still sounding when it is answered.
+        engine.markExpiryDone(id: engine.pendingExpiries.first { $0.timer.id == tea.id }!.id)
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
+        XCTAssertEqual(engine.activeAlert?.label, "Eggs")
+
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+    }
+
+    @MainActor
+    func testAnsweringTheSoundingTimerReplaysNothingThatHasHadItsAlert() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func expiry(_ label: String) -> PendingExpiry { engine.pendingExpiries.first { $0.timer.label == label }! }
+
+        // Tea has had its alert, and Alarm was silenced with Stop sound;
+        // both are still unanswered when Eggs rings and is answered.
+        engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        engine.createTimer(duration: 90, options: TimerOptions(label: "Alarm", loop: true))
+        engine.createTimer(duration: 120, options: TimerOptions(label: "Eggs"))
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        audio.finish()
+        clock.date.addTimeInterval(30)
+        engine.processExpiries()
+        engine.silenceExpiryAudio()
+        clock.date.addTimeInterval(30)
+        engine.processExpiries()
+        engine.markExpiryDone(id: expiry("Eggs").id)
+
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Alarm", "Eggs"])
+        XCTAssertNil(engine.activeAlert)
+    }
+
+    @MainActor
+    func testEveryLoopingAlarmThatEndsTogetherIsHeardEvenWithATimerQueuedBetween() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func expiry(_ label: String) -> PendingExpiry { engine.pendingExpiries.first { $0.timer.label == label }! }
+
+        engine.createTimers(templates: [
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Oven", loop: true), origin: .routine),
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Hob", loop: true), origin: .routine)
+        ])
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Tea"))
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        let first = try! XCTUnwrap(engine.activeAlert?.label)
+        let second = first == "Oven" ? "Hob" : "Oven"
+        // Tea comes due while the first alarm is still looping.
+        clock.date.addTimeInterval(1)
+        engine.processExpiries()
+
+        // The other alarm is next, ahead of Tea, and loops in its turn.
+        engine.markExpiryDone(id: expiry(first).id)
+        XCTAssertEqual(audio.playedLabels, [first, second])
+        XCTAssertEqual(engine.activeAlert?.label, second)
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, [first, second], "A looping alarm does not end by itself")
+
+        engine.markExpiryDone(id: expiry(second).id)
+        XCTAssertEqual(audio.playedLabels, [first, second, "Tea"])
+    }
+
+    @MainActor
+    func testTimersThatFinishTogetherEachSayTheNameTheyWereAskedToSay() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        engine.createTimers(templates: [
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Plain"), origin: .routine),
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Tea", speaksName: true), origin: .routine),
+            TimerTemplate(duration: 60, options: TimerOptions(label: "Eggs", speaksName: true), origin: .routine)
+        ])
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Later"))
+
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        clock.date.addTimeInterval(1)
+        engine.processExpiries()
+        XCTAssertEqual(audio.playedLabels.count, 1)
+        for _ in 0..<5 { audio.finish() }
+
+        // One alert stands for the three, and whichever of them it was, the
+        // two names are both said before the timer that came later rings.
+        let together = audio.playedLabels.dropLast()
+        XCTAssertEqual(audio.playedLabels.last, "Later")
+        XCTAssertTrue(Set(together).isSuperset(of: ["Tea", "Eggs"]), "\(audio.playedLabels)")
+        XCTAssertEqual(together.count, together.first == "Plain" ? 3 : 2, "\(audio.playedLabels)")
+        XCTAssertFalse(together.dropFirst().contains("Plain"))
+        XCTAssertNil(engine.activeAlert)
+    }
+
+    @MainActor
+    func testATimerProcessedLateKeepsTheTimeItWasDue() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Slept through"))
+
+        // The Mac woke half an hour after the timer was due.
+        fixture.clock.date.addTimeInterval(60 + 30 * 60)
+        fixture.engine.processExpiries()
+
+        let expiry = fixture.engine.pendingExpiries.first
+        XCTAssertEqual(expiry?.expiredAt, fixture.clock.date)
+        XCTAssertEqual(expiry?.dueAt, timer.fireDate)
+    }
+
+    @MainActor
     func testTimersThatFinishTogetherStillRingOnceAndSilencingDropsWaitingAlerts() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))

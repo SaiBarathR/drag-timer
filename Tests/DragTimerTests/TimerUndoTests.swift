@@ -199,16 +199,75 @@ final class TimerUndoTests: XCTestCase {
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 10_000))
         let engine = makeEngine(directory: directory, clock: clock)
         let kept = engine.createTimer(duration: 600, options: TimerOptions(label: "Kept"))
-        let gone = engine.createTimer(duration: 900, options: TimerOptions(label: "Gone"))
+        let paused = engine.createTimer(duration: 900, options: TimerOptions(label: "Paused"))
+        engine.pause(id: paused.id)
 
         engine.cancelAll()
+        XCTAssertTrue(makeEngine(directory: directory, clock: clock).timers.isEmpty)
         engine.undoLastRemoval()
-        engine.cancel(id: gone.id)
+
+        // Nothing else is written between the undo and this launch.
+        let relaunched = makeEngine(directory: directory, clock: clock)
+        XCTAssertEqual(Set(relaunched.timers.map(\.id)), [kept.id, paused.id])
+        XCTAssertEqual(relaunched.timers.first { $0.id == paused.id }?.pausedRemaining, 900)
+        XCTAssertTrue(relaunched.historyEntries.isEmpty)
+        XCTAssertNil(relaunched.undoableRemoval)
+    }
+
+    /// Undo writes the timers before it writes history. If the app dies in
+    /// between, the next launch finds the timers and their "cancelled"
+    /// entries, treats the timers as ended, and the removal simply stands.
+    @MainActor
+    func testACrashHalfwayThroughAnUndoLeavesTheRemovalStanding() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DragTimerUndoTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 10_000))
+        let engine = makeEngine(directory: directory, clock: clock)
+        let tea = engine.createTimer(duration: 600, options: TimerOptions(label: "Tea"))
+        engine.cancel(id: tea.id)
+        let historyURL = directory.appendingPathComponent("history.json")
+        let historyBeforeUndo = try Data(contentsOf: historyURL)
+
+        engine.undoLastRemoval()
+        // The first write happened: the timer is back in its file.
+        let written = try JSONDecoder().decode(
+            [TimerRecord].self,
+            from: Data(contentsOf: directory.appendingPathComponent("timers.json"))
+        )
+        XCTAssertEqual(written.map(\.id), [tea.id])
+        // The second write never happened.
+        try historyBeforeUndo.write(to: historyURL)
 
         let relaunched = makeEngine(directory: directory, clock: clock)
-        XCTAssertEqual(relaunched.timers.map(\.id), [kept.id])
-        XCTAssertEqual(relaunched.historyEntries.map(\.sourceTimerID), [gone.id])
-        XCTAssertNil(relaunched.undoableRemoval)
+        XCTAssertTrue(relaunched.timers.isEmpty)
+        XCTAssertEqual(relaunched.historyEntries.map(\.sourceTimerID), [tea.id])
+        XCTAssertEqual(relaunched.historyEntries.map(\.outcome), [.cancelled])
+    }
+
+    /// With the engine's own clock and scheduler: a restored timer is armed
+    /// again without anyone asking the engine to look.
+    @MainActor
+    func testAnUndoneTimerFiresOnTheRealClock() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DragTimerUndoTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: SilentAudio()
+        )
+        let timer = engine.createTimer(duration: 1, options: TimerOptions(label: "Real"))
+        engine.cancel(id: timer.id)
+
+        engine.undoLastRemoval()
+
+        let limit = Date().addingTimeInterval(10)
+        while engine.pendingExpiries.isEmpty, Date() < limit {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertEqual(engine.pendingExpiries.map(\.timer.id), [timer.id])
+        XCTAssertEqual(engine.historyEntries.map(\.outcome), [.completed])
     }
 
     @MainActor
