@@ -206,6 +206,20 @@ final class TimerEngine: ObservableObject {
         }
     }
 
+    /// What a just-dragged timer is doing now. Its name prompt stays open
+    /// over a timer that is already running, and that timer can ring, or be
+    /// stopped or answered some other way, before it has been named.
+    func nameableState(of id: UUID) -> NameableTimerState {
+        let ids = lineage(of: id)
+        if let timer = timers.last(where: { ids.contains($0.id) }) {
+            return .running(fireDate: timer.fireDate)
+        }
+        if let expiry = pendingExpiries.last(where: { ids.contains($0.timer.id) }) {
+            return .finished(dueAt: expiry.dueAt)
+        }
+        return .gone
+    }
+
     /// The ids one dragged timer has gone by: its own, then the timer made by
     /// each snooze or restart of its expiry. The name prompt can still be
     /// open when that happens, and it only knows the first id.

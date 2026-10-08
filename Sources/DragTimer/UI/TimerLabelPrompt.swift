@@ -8,11 +8,24 @@ enum TimerLabelPromptOutcome: Equatable {
     case discarded
 }
 
+/// What the timer being named is doing while its prompt is open.
+enum NameableTimerState: Equatable {
+    case running(fireDate: Date)
+    case finished(dueAt: Date)
+    /// Stopped, marked done or discarded: nothing is left to name.
+    case gone
+}
+
 enum TimerLabelPrompt {
-    static func requestLabel(targetFireDate: Date, currentLabel: String) -> TimerLabelPromptOutcome {
+    static func requestLabel(
+        targetFireDate: Date,
+        currentLabel: String,
+        timerState: (() -> NameableTimerState)? = nil
+    ) -> TimerLabelPromptOutcome {
         let controller = TimerLabelPromptController(
             targetFireDate: targetFireDate,
-            currentLabel: currentLabel
+            currentLabel: currentLabel,
+            timerState: timerState
         )
         return controller.run()
     }
@@ -66,14 +79,18 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
     private static let labelEditorHeight: CGFloat = 64
 
     private let panel: TimerLabelPromptPanel
-    private let targetFireDate: Date
+    private let timerState: () -> NameableTimerState
     private let detailLabel = NSTextField(labelWithString: "")
     private let labelView: PlaceholderTextView
     private let discardButton = NSButton(title: "Discard Timer", target: nil, action: nil)
     private var outcome: TimerLabelPromptOutcome = .keptName
 
-    init(targetFireDate: Date, currentLabel: String = "Timer") {
-        self.targetFireDate = targetFireDate
+    init(
+        targetFireDate: Date,
+        currentLabel: String = "Timer",
+        timerState: (() -> NameableTimerState)? = nil
+    ) {
+        self.timerState = timerState ?? { .running(fireDate: targetFireDate) }
         panel = TimerLabelPromptPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.contentWidth + 48, height: 264),
             styleMask: [.titled, .fullSizeContentView],
@@ -231,6 +248,7 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
     #if DEBUG
     var labelTextViewForTesting: NSTextView { labelView }
     var discardButtonForTesting: NSButton { discardButton }
+    var detailTextForTesting: String { detailLabel.stringValue }
     var isLabelEditorFirstResponderForTesting: Bool { panel.firstResponder === labelView }
     #endif
 
@@ -250,10 +268,22 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
         NSApp.abortModal()
     }
 
+    /// Says what the timer is doing now, which is not always what it was
+    /// doing when the prompt opened, and closes the prompt once the timer is
+    /// gone: there is then nothing left to name or to discard.
     private func refreshDetailText() {
-        let remaining = max(0, targetFireDate.timeIntervalSinceNow)
-        detailLabel.stringValue =
-            "Running · rings at \(TimerDateText.fireTime(for: targetFireDate)), \(MenuBarCountdown.text(forRemaining: remaining)) left"
+        switch timerState() {
+        case let .running(fireDate):
+            let remaining = max(0, fireDate.timeIntervalSinceNow)
+            detailLabel.stringValue =
+                "Running · rings at \(TimerDateText.fireTime(for: fireDate)), \(MenuBarCountdown.text(forRemaining: remaining)) left"
+        case let .finished(dueAt):
+            detailLabel.stringValue = "Finished at \(TimerDateText.fireTime(for: dueAt))"
+        case .gone:
+            if NSApp.modalWindow === panel {
+                keepName()
+            }
+        }
     }
 
     private func positionNearMenuBar() {

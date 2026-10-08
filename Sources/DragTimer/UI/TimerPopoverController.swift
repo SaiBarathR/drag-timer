@@ -261,6 +261,10 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     /// window moves some time after the item asks for its new width, and
     /// the popover places itself afresh whenever it resizes; hence both the
     /// window's notifications and the screen rectangle kept here.
+    ///
+    /// Pushed along by its neighbours in the menu bar, the item can leave
+    /// that spot altogether. The popover then moves just far enough to stay
+    /// on the item; attached to a point beside it, it would lose its arrow.
     private func holdAnchor(at positioningRect: NSRect, in anchorView: NSView) {
         releaseAnchor()
         guard let window = anchorView.window else { return }
@@ -285,7 +289,14 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
               let anchorScreenRect else {
             return
         }
-        let positioningRect = anchorView.convert(window.convertFromScreen(anchorScreenRect), from: nil)
+        let opened = anchorView.convert(window.convertFromScreen(anchorScreenRect), from: nil)
+        let bounds = anchorView.bounds
+        var positioningRect = opened
+        positioningRect.origin.x = max(bounds.minX, min(opened.minX, bounds.maxX - opened.width))
+        positioningRect.origin.y = max(bounds.minY, min(opened.minY, bounds.maxY - opened.height))
+        if positioningRect != opened {
+            self.anchorScreenRect = window.convertToScreen(anchorView.convert(positioningRect, to: nil))
+        }
         if positioningRect != popover.positioningRect {
             popover.positioningRect = positioningRect
         }

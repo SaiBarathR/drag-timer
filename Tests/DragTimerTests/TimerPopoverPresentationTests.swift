@@ -363,7 +363,43 @@ final class TimerPopoverPresentationTests: XCTestCase {
         XCTAssertGreaterThan(resized.height, opened.height + 40)
         XCTAssertEqual(resized.minX, opened.minX, accuracy: 0.5)
         XCTAssertEqual(resized.maxY, opened.maxY, accuracy: 0.5)
+
+        // Pushed a little way by its neighbours, the item is still under
+        // the spot the popover is attached to, and nothing moves.
+        frame.origin.x -= 6
+        anchorWindow.setFrame(frame, display: true)
+        fixture.engine.createTimer(duration: 3_600, options: TimerOptions(label: "Timer"))
+        try waitForPopover(controller, tallerThan: resized.height + 20)
+        let nudged = try XCTUnwrap(controller.currentPopoverWindowFrame)
+        XCTAssertEqual(nudged.minX, opened.minX, accuracy: 0.5)
+
+        // Pushed right off that spot, the popover goes along only as far as
+        // it must to stay on the item and keep its arrow.
+        frame.origin.x -= 40
+        anchorWindow.setFrame(frame, display: true)
+        fixture.engine.cancelAll()
+        try waitForPopover(controller, shorterThan: nudged.height - 20)
+        let pushed = try XCTUnwrap(controller.currentPopoverWindowFrame)
+        XCTAssertTrue(anchor.bounds.contains(controller.currentPositioningRect))
+        XCTAssertLessThan(pushed.minX, opened.minX - 1)
+        XCTAssertGreaterThan(pushed.minX, opened.minX - 46 + 1)
         controller.closeForTesting()
+    }
+
+    @MainActor
+    private func waitForPopover(
+        _ controller: TimerPopoverController,
+        tallerThan height: CGFloat = 0,
+        shorterThan limit: CGFloat = .infinity
+    ) throws {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            runMainLoopBriefly()
+            if let current = controller.currentPopoverWindowFrame?.height, current > height, current < limit {
+                return
+            }
+        }
+        XCTFail("The popover did not resize")
     }
 
     @MainActor

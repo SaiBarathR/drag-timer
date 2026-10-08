@@ -320,6 +320,31 @@ final class DragGestureControllerTests: XCTestCase {
         XCTAssertEqual(rangWhilePromptWasOpen, true)
     }
 
+    /// The prompt stays open over a timer that is already running, so the
+    /// timer can ring, be snoozed or be stopped before it has a name.
+    func testTheNamePromptCanAskWhatHasBecomeOfItsTimer() throws {
+        let fixture = makeFixture(askForLabel: true)
+        defer { fixture.cleanup() }
+
+        drag(fixture, pulled: [88])
+        fixture.spy.driver?.fireFrame()
+        waitForPrompt(fixture)
+        let timer = try XCTUnwrap(fixture.engine.timers.first)
+        let state = try XCTUnwrap(fixture.spy.promptTimerState)
+        XCTAssertEqual(state(), .running(fireDate: timer.fireDate))
+
+        fixture.engine.processExpiries(at: timer.fireDate.addingTimeInterval(1))
+        let expiry = try XCTUnwrap(fixture.engine.pendingExpiries.first)
+        XCTAssertEqual(state(), .finished(dueAt: expiry.dueAt))
+
+        // Snoozed, it runs again as another timer.
+        let snoozed = try XCTUnwrap(fixture.engine.snoozeExpiry(id: expiry.id))
+        XCTAssertEqual(state(), .running(fireDate: snoozed.fireDate))
+
+        fixture.engine.cancel(id: snoozed.id)
+        XCTAssertEqual(state(), .gone)
+    }
+
     func testPromptDiscardRemovesTheTimerWithoutHistory() {
         let fixture = makeFixture(askForLabel: true)
         defer { fixture.cleanup() }
@@ -433,6 +458,7 @@ final class DragGestureControllerTests: XCTestCase {
         var haptics: [NSHapticFeedbackManager.FeedbackPattern] = []
         var promptRequests: [(fireDate: Date, label: String)] = []
         var promptOutcome: TimerLabelPromptOutcome = .keptName
+        var promptTimerState: (() -> NameableTimerState)?
         var probesMainQueueDuringPrompt = false
         var usesRealPrompt = false
         var mainQueueDrainedDuringPrompt: Bool?
@@ -457,10 +483,15 @@ final class DragGestureControllerTests: XCTestCase {
                     return driver
                 },
                 performHaptic: { [unowned self] in haptics.append($0) },
-                requestLabel: { [unowned self] fireDate, label in
+                requestLabel: { [unowned self] fireDate, label, timerState in
                     promptRequests.append((fireDate, label))
+                    promptTimerState = timerState
                     if usesRealPrompt {
-                        return TimerLabelPrompt.requestLabel(targetFireDate: fireDate, currentLabel: label)
+                        return TimerLabelPrompt.requestLabel(
+                            targetFireDate: fireDate,
+                            currentLabel: label,
+                            timerState: timerState
+                        )
                     }
                     if probesMainQueueDuringPrompt {
                         // Stand in for the modal prompt: one nested run-loop
