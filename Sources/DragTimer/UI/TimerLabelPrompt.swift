@@ -11,6 +11,7 @@ enum TimerLabelPromptOutcome: Equatable {
 /// What the timer being named is doing while its prompt is open.
 enum NameableTimerState: Equatable {
     case running(fireDate: Date)
+    case paused(remaining: TimeInterval)
     case finished(dueAt: Date)
     /// Stopped, marked done or discarded: nothing is left to name.
     case gone
@@ -252,9 +253,13 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
     var isLabelEditorFirstResponderForTesting: Bool { panel.firstResponder === labelView }
     #endif
 
-    @objc private func saveName() {
+    private var typedName: String? {
         let trimmedLabel = labelView.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        outcome = trimmedLabel.isEmpty ? .keptName : .renamed(trimmedLabel)
+        return trimmedLabel.isEmpty ? nil : trimmedLabel
+    }
+
+    @objc private func saveName() {
+        outcome = typedName.map { .renamed($0) } ?? .keptName
         NSApp.stopModal()
     }
 
@@ -277,11 +282,15 @@ final class TimerLabelPromptController: NSObject, NSWindowDelegate, NSTextViewDe
             let remaining = max(0, fireDate.timeIntervalSinceNow)
             detailLabel.stringValue =
                 "Running · rings at \(TimerDateText.fireTime(for: fireDate)), \(MenuBarCountdown.text(forRemaining: remaining)) left"
+        case let .paused(remaining):
+            detailLabel.stringValue = "Paused · \(MenuBarCountdown.text(forRemaining: remaining)) left"
         case let .finished(dueAt):
             detailLabel.stringValue = "Finished at \(TimerDateText.fireTime(for: dueAt))"
         case .gone:
+            // A name already typed still reaches the timer's History entry.
             if NSApp.modalWindow === panel {
-                keepName()
+                outcome = typedName.map { .renamed($0) } ?? .keptName
+                NSApp.abortModal()
             }
         }
     }

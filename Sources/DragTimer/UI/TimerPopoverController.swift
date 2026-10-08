@@ -111,8 +111,8 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     /// Room for the popover's arrow and a little air above the screen's edge.
     private static let screenMargin: CGFloat = 24
     private weak var anchorView: NSView?
-    /// Where on the screen the popover was attached when it opened.
-    private var anchorScreenRect: NSRect?
+    /// How far across the screen the popover is attached. Set when it opens.
+    private var anchorScreenX: CGFloat?
     private var anchorWindowObservers: [NSObjectProtocol] = []
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -265,10 +265,12 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     /// Pushed along by its neighbours in the menu bar, the item can leave
     /// that spot altogether. The popover then moves just far enough to stay
     /// on the item; attached to a point beside it, it would lose its arrow.
+    /// Only the way across is held: up and down, as when the menu bar
+    /// hides, the popover is left to AppKit as before.
     private func holdAnchor(at positioningRect: NSRect, in anchorView: NSView) {
         releaseAnchor()
         guard let window = anchorView.window else { return }
-        anchorScreenRect = window.convertToScreen(anchorView.convert(positioningRect, to: nil))
+        anchorScreenX = window.convertToScreen(anchorView.convert(positioningRect, to: nil)).minX
         anchorWindowObservers = [NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: window, queue: nil) { [weak self] _ in
                 self?.stayWhereOpened()
@@ -279,26 +281,25 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private func releaseAnchor() {
         anchorWindowObservers.forEach(NotificationCenter.default.removeObserver)
         anchorWindowObservers = []
-        anchorScreenRect = nil
+        anchorScreenX = nil
     }
 
     private func stayWhereOpened() {
         guard popover.isShown,
               let anchorView,
               let window = anchorView.window,
-              let anchorScreenRect else {
+              let anchorScreenX else {
             return
         }
-        let opened = anchorView.convert(window.convertFromScreen(anchorScreenRect), from: nil)
+        var positioningRect = popover.positioningRect
+        let onScreen = window.convertToScreen(anchorView.convert(positioningRect, to: nil))
+        let held = positioningRect.minX + (anchorScreenX - onScreen.minX)
         let bounds = anchorView.bounds
-        var positioningRect = opened
-        positioningRect.origin.x = max(bounds.minX, min(opened.minX, bounds.maxX - opened.width))
-        positioningRect.origin.y = max(bounds.minY, min(opened.minY, bounds.maxY - opened.height))
-        if positioningRect != opened {
-            self.anchorScreenRect = window.convertToScreen(anchorView.convert(positioningRect, to: nil))
-        }
-        if positioningRect != popover.positioningRect {
-            popover.positioningRect = positioningRect
+        positioningRect.origin.x = max(bounds.minX, min(held, bounds.maxX - positioningRect.width))
+        guard positioningRect.minX != popover.positioningRect.minX else { return }
+        popover.positioningRect = positioningRect
+        if positioningRect.minX != held {
+            self.anchorScreenX = window.convertToScreen(anchorView.convert(positioningRect, to: nil)).minX
         }
     }
 

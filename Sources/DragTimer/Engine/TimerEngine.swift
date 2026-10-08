@@ -212,7 +212,7 @@ final class TimerEngine: ObservableObject {
     func nameableState(of id: UUID) -> NameableTimerState {
         let ids = lineage(of: id)
         if let timer = timers.last(where: { ids.contains($0.id) }) {
-            return .running(fireDate: timer.fireDate)
+            return timer.pausedRemaining.map { .paused(remaining: $0) } ?? .running(fireDate: timer.fireDate)
         }
         if let expiry = pendingExpiries.last(where: { ids.contains($0.timer.id) }) {
             return .finished(dueAt: expiry.dueAt)
@@ -374,6 +374,15 @@ final class TimerEngine: ObservableObject {
         if var timer = timers.first(where: { ids.contains($0.id) }) {
             timer.label = label
             update(timer)
+        }
+        // Stopped while its name was being typed, it comes back from Undo
+        // under that name.
+        if var removal = undoableRemoval {
+            let removed = removal.timers.indices.filter { ids.contains(removal.timers[$0].id) }
+            for index in removed {
+                removal.timers[index].label = label
+            }
+            if !removed.isEmpty { undoableRemoval = removal }
         }
     }
 

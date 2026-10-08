@@ -333,7 +333,13 @@ final class DragGestureControllerTests: XCTestCase {
         let state = try XCTUnwrap(fixture.spy.promptTimerState)
         XCTAssertEqual(state(), .running(fireDate: timer.fireDate))
 
-        fixture.engine.processExpiries(at: timer.fireDate.addingTimeInterval(1))
+        fixture.engine.pause(id: timer.id)
+        XCTAssertEqual(state(), .paused(remaining: try XCTUnwrap(fixture.engine.timers.first?.pausedRemaining)))
+        fixture.engine.resume(id: timer.id)
+        let resumed = try XCTUnwrap(fixture.engine.timers.first)
+        XCTAssertEqual(state(), .running(fireDate: resumed.fireDate))
+
+        fixture.engine.processExpiries(at: resumed.fireDate.addingTimeInterval(1))
         let expiry = try XCTUnwrap(fixture.engine.pendingExpiries.first)
         XCTAssertEqual(state(), .finished(dueAt: expiry.dueAt))
 
