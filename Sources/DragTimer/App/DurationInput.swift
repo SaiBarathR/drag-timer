@@ -7,6 +7,8 @@ import Foundation
 /// result is between one second and one day.
 enum DurationInput {
     static let range: ClosedRange<TimeInterval> = 1...(24 * 60 * 60)
+    /// Room for "1 hour 30 minutes 15 seconds" and little more.
+    private static let maximumLength = 40
 
     private enum Unit: Int {
         case hours, minutes, seconds
@@ -22,7 +24,7 @@ enum DurationInput {
 
     static func parse(_ text: String) -> TimeInterval? {
         let input = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !input.isEmpty, input.count <= 24 else { return nil }
+        guard !input.isEmpty, input.count <= maximumLength else { return nil }
 
         let clock = input.split(separator: ":", omittingEmptySubsequences: false)
         if clock.count == 2 {
@@ -79,6 +81,18 @@ enum TimerEntry: Equatable {
     case length(TimeInterval)
     /// Ring at this time of day.
     case clockTime(Date)
+
+    /// What the button that starts it says. A time that has already passed
+    /// today is tomorrow's, and says so.
+    func startTitle(now: Date = Date(), calendar: Calendar = .current) -> String {
+        switch self {
+        case let .length(duration):
+            return "Start \(DurationText.planned(duration))"
+        case let .clockTime(date):
+            let time = TimerDateText.fireTime(for: date)
+            return calendar.isDate(date, inSameDayAs: now) ? "Ring at \(time)" : "Ring tomorrow at \(time)"
+        }
+    }
 }
 
 extension DurationInput {
@@ -91,7 +105,7 @@ extension DurationInput {
         calendar: Calendar = .current
     ) -> TimerEntry? {
         let input = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard input.count <= 24 else { return nil }
+        guard input.count <= maximumLength else { return nil }
         for prefix in ["@", "at", "until"] where input.hasPrefix(prefix) {
             let time = input.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
             return clockTime(time, now: now, calendar: calendar).map(TimerEntry.clockTime)
@@ -125,11 +139,13 @@ extension DurationInput {
             hours = [hour]
         }
 
+        // Strict, so that on the night the clocks go forward a time that
+        // does not exist is not quietly moved to one that does.
         let next = hours.compactMap { hour in
             calendar.nextDate(
                 after: now,
                 matching: DateComponents(hour: hour, minute: minute, second: 0),
-                matchingPolicy: .nextTime
+                matchingPolicy: .strict
             )
         }.min()
         // Longer than a day only when the clocks go back; a timer cannot be.
