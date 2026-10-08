@@ -22,7 +22,9 @@ struct TimerOptionFields: View {
             SoundPreview.play(soundName: soundName, volume: options.volume)
         }
         if options.soundName == AlertSound.systemBeep.rawValue {
-            Text("System beep uses your Mac's alert volume.")
+            Text(options.speaksName
+                ? "System beep uses your Mac's alert volume. Volume here sets the spoken name."
+                : "System beep uses your Mac's alert volume.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -63,6 +63,20 @@ final class AlertSoundTests: XCTestCase {
         XCTAssertEqual(AudioAlertPlayer.announcement(for: timer), "Tea for two finished")
     }
 
+    func testSystemBeepIsGivenTheLengthOfTheChosenAlertSound() {
+        // No alert sound on record, or one that cannot be read.
+        XCTAssertEqual(AudioAlertPlayer.systemBeepDuration(alertSoundPath: nil), 1.25)
+        XCTAssertEqual(AudioAlertPlayer.systemBeepDuration(alertSoundPath: "/nowhere/Missing.aiff"), 1.25)
+        // Shorter than the loop interval: the interval is the floor.
+        XCTAssertEqual(AudioAlertPlayer.systemBeepDuration(alertSoundPath: "/System/Library/Sounds/Tink.aiff"), 1.25)
+        // Longer: the name must wait for it.
+        XCTAssertEqual(
+            AudioAlertPlayer.systemBeepDuration(alertSoundPath: "/System/Library/Sounds/Funk.aiff"),
+            2.16,
+            accuracy: 0.05
+        )
+    }
+
     func testDefaultSpokenNameSettingPersistsAndReachesNewTimers() {
         let suite = "DragTimerSoundTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

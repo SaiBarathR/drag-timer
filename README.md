@@ -157,7 +157,7 @@ The workflow also supports a manual dry run before tagging: provide the intended
 - SwiftUI provides the timer list, expiry card, History, editors, and tabbed Preferences interface.
 - Core Animation renders the drag line and duration overlay at display cadence.
 - `TimerEngine` schedules only the nearest deadline, batch-creates routine timers with one shared start time, and persists active timers, pending expiries, and idempotent terminal history as Codable JSON.
-- `AVAudioPlayer` plays the system sounds from `/System/Library/Sounds`. A looping sound shorter than 1.25 seconds, like the system beep, is repeated on a timer so it does not run together. `AVSpeechSynthesizer` says the timer's name.
+- `AVAudioPlayer` plays the system sounds from `/System/Library/Sounds`. A looping sound shorter than 1.25 seconds, like the system beep, is repeated on a timer so it does not run together. `AVSpeechSynthesizer` says the timer's name after the sound has played once; a looping alert starts repeating only when the name has been said.
 
 ## Privacy
 

@@ -18,14 +18,14 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesiz
 
     private var player: AVAudioPlayer?
     private var loopTimer: Timer?
-    private var oneShotCompletionTimer: Timer?
-    private var announcementTimer: Timer?
+    private var soundEndTimer: Timer?
     private var synthesizer: AVSpeechSynthesizer?
+    private var sound = AlertSound.glass
+    private var volume: Float = 0
     private var isLooping = false
     private var pendingAnnouncement: AVSpeechUtterance?
-    /// The name being said after a one-shot sound; the alert is over when
-    /// this utterance ends.
-    private var closingUtterance: AVSpeechUtterance?
+    /// The name being said; what happens next waits for this utterance.
+    private var spokenUtterance: AVSpeechUtterance?
     private var playbackFinishedHandler: (() -> Void)?
 
     func setPlaybackFinishedHandler(_ handler: @escaping () -> Void) {
@@ -39,53 +39,40 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesiz
         return "\(name) finished"
     }
 
+    /// How long the system beep is given before anything follows it: the
+    /// length of the alert sound chosen in System Settings when that is on
+    /// record, and never less than the loop interval.
+    static func systemBeepDuration(
+        alertSoundPath: String? = UserDefaults.standard.string(forKey: "com.apple.sound.beep.sound")
+    ) -> TimeInterval {
+        let duration = alertSoundPath.flatMap { NSSound(contentsOfFile: $0, byReference: true)?.duration } ?? 0
+        return max(minimumLoopInterval, duration)
+    }
+
     func play(timer: TimerRecord) {
         stop()
 
+        sound = AlertSound(rawValue: AlertSound.normalizedName(timer.soundName)) ?? .glass
+        volume = Float(timer.volume)
         isLooping = timer.loop
         pendingAnnouncement = Self.announcement(for: timer).map { text in
             let utterance = AVSpeechUtterance(string: text)
-            utterance.volume = Float(timer.volume)
+            utterance.volume = volume
             return utterance
         }
-
-        let sound = AlertSound(rawValue: AlertSound.normalizedName(timer.soundName)) ?? .glass
-        let url = Bundle.main.url(forResource: sound.rawValue, withExtension: "aiff")
-            ?? sound.fileURL
-            ?? AlertSound.glass.fileURL
-        guard sound != .systemBeep, let url, let newPlayer = try? AVAudioPlayer(contentsOf: url) else {
-            playSystemBeep()
-            return
-        }
-
-        newPlayer.delegate = self
-        newPlayer.volume = Float(timer.volume)
-        if isLooping {
-            if newPlayer.duration >= Self.minimumLoopInterval {
-                newPlayer.numberOfLoops = -1
-            } else {
-                repeatWhileLooping { [weak self] in
-                    self?.player?.currentTime = 0
-                    self?.player?.play()
-                }
-            }
-            // Once the sound has been heard through, and over the loop.
-            announce(after: min(max(newPlayer.duration, 0.6), 3))
-        }
-        newPlayer.prepareToPlay()
-        newPlayer.play()
-        player = newPlayer
+        // With a name to say, the sound is heard once, then the name, and
+        // only then does a looping alert begin to repeat, so that the name
+        // is never said over the sound.
+        startSound(repeating: isLooping && pendingAnnouncement == nil)
     }
 
     func stop() {
-        oneShotCompletionTimer?.invalidate()
-        oneShotCompletionTimer = nil
+        soundEndTimer?.invalidate()
+        soundEndTimer = nil
         loopTimer?.invalidate()
         loopTimer = nil
-        announcementTimer?.invalidate()
-        announcementTimer = nil
         pendingAnnouncement = nil
-        closingUtterance = nil
+        spokenUtterance = nil
         isLooping = false
         synthesizer?.stopSpeaking(at: .immediate)
         player?.stop()
@@ -93,8 +80,8 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesiz
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        // A short looping sound is played once per pass and kept for the next.
-        guard self.player === player, !isLooping else { return }
+        // A short repeating sound is played once per pass and kept for the next.
+        guard self.player === player, loopTimer == nil else { return }
         self.player = nil
         soundDidFinish()
     }
@@ -107,71 +94,81 @@ final class AudioAlertPlayer: NSObject, AVAudioPlayerDelegate, AVSpeechSynthesiz
         speechEnded(utterance)
     }
 
-    /// The synthesizer does not promise a thread, and a cancelled utterance
-    /// can report in after the next alert has started.
-    private func speechEnded(_ utterance: AVSpeechUtterance) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.closingUtterance === utterance else { return }
-            self.closingUtterance = nil
-            self.playbackFinishedHandler?()
-        }
-    }
-
-    private func playSystemBeep() {
-        NSSound.beep()
-
-        guard isLooping else {
-            scheduleOneShotCompletion()
+    private func startSound(repeating: Bool) {
+        let url = Bundle.main.url(forResource: sound.rawValue, withExtension: "aiff")
+            ?? sound.fileURL
+            ?? AlertSound.glass.fileURL
+        guard sound != .systemBeep, let url, let newPlayer = try? AVAudioPlayer(contentsOf: url) else {
+            NSSound.beep()
+            let length = Self.systemBeepDuration()
+            if repeating {
+                repeatSound(every: length) { NSSound.beep() }
+            } else {
+                endSound(after: length)
+            }
             return
         }
-        repeatWhileLooping { NSSound.beep() }
-        // After the first beep, as a one-shot beep is given.
-        announce(after: Self.minimumLoopInterval)
+
+        newPlayer.delegate = self
+        newPlayer.volume = volume
+        if repeating {
+            if newPlayer.duration >= Self.minimumLoopInterval {
+                newPlayer.numberOfLoops = -1
+            } else {
+                repeatSound(every: Self.minimumLoopInterval) { [weak self] in
+                    self?.player?.currentTime = 0
+                    self?.player?.play()
+                }
+            }
+        }
+        newPlayer.prepareToPlay()
+        newPlayer.play()
+        player = newPlayer
     }
 
-    private func repeatWhileLooping(_ replay: @escaping () -> Void) {
-        let timer = Timer(timeInterval: Self.minimumLoopInterval, repeats: true) { _ in replay() }
+    private func repeatSound(every interval: TimeInterval, _ replay: @escaping () -> Void) {
+        let timer = Timer(timeInterval: interval, repeats: true) { _ in replay() }
         loopTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    private func scheduleOneShotCompletion() {
-        let timer = Timer(timeInterval: 1.25, repeats: false) { [weak self] _ in
-            self?.oneShotCompletionTimer = nil
+    /// The system beep reports nothing when it ends.
+    private func endSound(after interval: TimeInterval) {
+        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+            self?.soundEndTimer = nil
             self?.soundDidFinish()
         }
-        oneShotCompletionTimer = timer
+        soundEndTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    /// A one-shot alert is over when its sound ends, or when the name that
-    /// follows the sound has been said.
+    /// The single pass of a sound has ended: say the name if there is one to
+    /// say, and otherwise the alert is over.
     private func soundDidFinish() {
-        guard pendingAnnouncement != nil else {
+        guard let utterance = pendingAnnouncement else {
             playbackFinishedHandler?()
             return
         }
-        closingUtterance = pendingAnnouncement
-        speakPendingAnnouncement()
-    }
-
-    private func announce(after delay: TimeInterval) {
-        guard pendingAnnouncement != nil else { return }
-        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            self?.announcementTimer = nil
-            self?.speakPendingAnnouncement()
-        }
-        announcementTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func speakPendingAnnouncement() {
-        guard let utterance = pendingAnnouncement else { return }
         pendingAnnouncement = nil
+        spokenUtterance = utterance
         let synthesizer = self.synthesizer ?? AVSpeechSynthesizer()
         synthesizer.delegate = self
         self.synthesizer = synthesizer
         synthesizer.speak(utterance)
+    }
+
+    /// The synthesizer does not promise a thread, and a cancelled utterance
+    /// can report in after the next alert has started.
+    private func speechEnded(_ utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.spokenUtterance === utterance else { return }
+            self.spokenUtterance = nil
+            if self.isLooping {
+                self.startSound(repeating: true)
+            } else {
+                self.playbackFinishedHandler?()
+            }
+        }
     }
 }
 
