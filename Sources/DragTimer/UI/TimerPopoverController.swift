@@ -87,25 +87,33 @@ final class TypedLengthEntry: ObservableObject {
     }
 }
 
-/// The tallest the popover's content may grow: what fits below the menu bar
-/// on the screen it opened on. Past that the timer list scrolls instead.
-final class PopoverHeightLimit: ObservableObject {
-    @Published var maximum: CGFloat = .infinity
-
-    /// Room for the popover's arrow and a little air above the screen's edge.
-    static let margin: CGFloat = 24
-}
-
 final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let timerEngine: TimerEngine
+    private let settings: AppSettings
+    private let updateChecker: UpdateChecker
     private let onOpenSettings: () -> Void
     private let onOpenHistory: () -> Void
     private let onPopoverVisibilityChanged: (Bool) -> Void
     private let typedLength = TypedLengthEntry()
-    private let heightLimit = PopoverHeightLimit()
     private var hostingController: NSHostingController<TimerListView>!
+    /// The tallest the content may be: what fits below the menu bar on the
+    /// screen the popover opened on. Past that the timer list scrolls.
+    private var maximumContentHeight: CGFloat = .infinity {
+        didSet {
+            // Handed over as a new root view, which the next layout already
+            // uses; a published value would arrive a turn after the popover
+            // had been measured and shown.
+            guard maximumContentHeight != oldValue else { return }
+            hostingController.rootView = makeRootView()
+        }
+    }
+    /// Room for the popover's arrow and a little air above the screen's edge.
+    private static let screenMargin: CGFloat = 24
     private weak var anchorView: NSView?
+    /// Where on the screen the popover was attached when it opened.
+    private var anchorScreenRect: NSRect?
+    private var anchorWindowObservers: [NSObjectProtocol] = []
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
 
@@ -119,6 +127,8 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         animationsEnabled: Bool? = nil
     ) {
         self.timerEngine = timerEngine
+        self.settings = settings
+        self.updateChecker = updateChecker ?? UpdateChecker(settings: settings)
         self.onOpenSettings = onOpenSettings
         self.onOpenHistory = onOpenHistory
         self.onPopoverVisibilityChanged = onPopoverVisibilityChanged
@@ -128,25 +138,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         popover.animates = animationsEnabled
             ?? !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.delegate = self
-        hostingController = NSHostingController(
-            rootView: TimerListView(
-                timerEngine: timerEngine,
-                settings: settings,
-                updateChecker: updateChecker ?? UpdateChecker(settings: settings),
-                typedLength: typedLength,
-                heightLimit: heightLimit,
-                onOpenSettings: { [weak self] in
-                    self?.openSettings()
-                },
-                onOpenHistory: { [weak self] in
-                    self?.openHistory()
-                },
-                // The popover stays open: the offer to undo is in it.
-                onStopAll: { [weak self] in
-                    self?.timerEngine.cancelAll()
-                }
-            )
-        )
+        hostingController = NSHostingController(rootView: makeRootView())
         // The popover follows its content for as long as it is open. Sized
         // only when shown, it squeezed the timer list to nothing, or pushed
         // the presets and the footer out of view, once a finished card, a
@@ -158,6 +150,27 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
 
     deinit {
         stopOutsideClickMonitoring()
+        releaseAnchor()
+    }
+
+    private func makeRootView() -> TimerListView {
+        TimerListView(
+            timerEngine: timerEngine,
+            settings: settings,
+            updateChecker: updateChecker,
+            typedLength: typedLength,
+            maximumHeight: maximumContentHeight,
+            onOpenSettings: { [weak self] in
+                self?.openSettings()
+            },
+            onOpenHistory: { [weak self] in
+                self?.openHistory()
+            },
+            // The popover stays open: the offer to undo is in it.
+            onStopAll: { [weak self] in
+                self?.timerEngine.cancelAll()
+            }
+        )
     }
 
     func toggle(relativeTo anchorView: NSView, positioningRect: NSRect) {
@@ -167,21 +180,27 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
             self.anchorView = anchorView
             onPopoverVisibilityChanged(true)
             if let screen = anchorView.window?.screen ?? NSScreen.main {
-                heightLimit.maximum = screen.visibleFrame.height - PopoverHeightLimit.margin
+                maximumContentHeight = max(
+                    TimerPopoverGeometry.minimumContentHeight,
+                    screen.visibleFrame.height - Self.screenMargin
+                )
             }
             prepareForPresentation()
             popover.show(relativeTo: positioningRect, of: anchorView, preferredEdge: .minY)
+            holdAnchor(at: positioningRect, in: anchorView)
             startOutsideClickMonitoring()
         }
     }
 
-    func updatePositioningRect(_ positioningRect: NSRect, relativeTo anchorView: NSView) {
-        guard popover.isShown, self.anchorView === anchorView else { return }
-        popover.positioningRect = positioningRect
+    /// The status item reports that its icon has moved inside it.
+    func anchorDidChange(in anchorView: NSView) {
+        guard self.anchorView === anchorView else { return }
+        stayWhereOpened()
     }
 
     func popoverDidClose(_ notification: Notification) {
         stopOutsideClickMonitoring()
+        releaseAnchor()
         anchorView = nil
         typedLength.reset()
         onPopoverVisibilityChanged(false)
@@ -195,10 +214,11 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     var isShownForTesting: Bool { popover.isShown }
     var typedLengthForTesting: TypedLengthEntry { typedLength }
 
-    var maximumContentHeightForTesting: CGFloat { heightLimit.maximum }
+    var maximumContentHeightForTesting: CGFloat { maximumContentHeight }
+    static var screenMarginForTesting: CGFloat { screenMargin }
 
     func setMaximumContentHeightForTesting(_ height: CGFloat) {
-        heightLimit.maximum = height
+        maximumContentHeight = height
     }
 
     func prepareForPresentationForTesting() {
@@ -232,6 +252,43 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
             return
         }
         popover.contentSize = fittingSize
+    }
+
+    /// The status item grows to its left when a countdown or a finished
+    /// timer's count-up appears in it, and the icon goes with it. A popover
+    /// that followed would jump sideways under the pointer, Timer details
+    /// included, so it stays attached to the spot it opened at. The item's
+    /// window moves some time after the item asks for its new width, and
+    /// the popover places itself afresh whenever it resizes; hence both the
+    /// window's notifications and the screen rectangle kept here.
+    private func holdAnchor(at positioningRect: NSRect, in anchorView: NSView) {
+        releaseAnchor()
+        guard let window = anchorView.window else { return }
+        anchorScreenRect = window.convertToScreen(anchorView.convert(positioningRect, to: nil))
+        anchorWindowObservers = [NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: nil) { [weak self] _ in
+                self?.stayWhereOpened()
+            }
+        }
+    }
+
+    private func releaseAnchor() {
+        anchorWindowObservers.forEach(NotificationCenter.default.removeObserver)
+        anchorWindowObservers = []
+        anchorScreenRect = nil
+    }
+
+    private func stayWhereOpened() {
+        guard popover.isShown,
+              let anchorView,
+              let window = anchorView.window,
+              let anchorScreenRect else {
+            return
+        }
+        let positioningRect = anchorView.convert(window.convertFromScreen(anchorScreenRect), from: nil)
+        if positioningRect != popover.positioningRect {
+            popover.positioningRect = positioningRect
+        }
     }
 
     /// The popover is anchored to a custom status-item view, where NSPopover's
@@ -299,7 +356,7 @@ private struct TimerListView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var updateChecker: UpdateChecker
     @ObservedObject var typedLength: TypedLengthEntry
-    @ObservedObject var heightLimit: PopoverHeightLimit
+    let maximumHeight: CGFloat
     let onOpenSettings: () -> Void
     let onOpenHistory: () -> Void
     let onStopAll: () -> Void
@@ -350,8 +407,7 @@ private struct TimerListView: View {
         .frame(width: 346)
         .frame(
             minHeight: heightUnderDetails ?? TimerPopoverGeometry.minimumContentHeight,
-            maxHeight: heightUnderDetails
-                ?? max(TimerPopoverGeometry.minimumContentHeight, heightLimit.maximum)
+            maxHeight: heightUnderDetails ?? maximumHeight
         )
         .background(GeometryReader { proxy in
             Color.clear.preference(key: PopoverContentHeightKey.self, value: proxy.size.height)
