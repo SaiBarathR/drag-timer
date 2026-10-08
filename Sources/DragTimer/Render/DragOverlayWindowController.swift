@@ -70,6 +70,7 @@ final class DragOverlayWindowController {
         cursorScreen: CGPoint,
         duration: TimeInterval,
         isSnapped: Bool,
+        isCancelling: Bool,
         updateText: Bool
     ) {
         // The duration label follows the cursor and clamps itself into the
@@ -88,6 +89,7 @@ final class DragOverlayWindowController {
                 cursor: localCursor,
                 duration: duration,
                 isSnapped: isSnapped,
+                isCancelling: isCancelling,
                 updateText: updateText,
                 showsLabel: index == labelIndex
             )
@@ -164,6 +166,7 @@ private final class DragSurfaceView: NSView {
         cursor: CGPoint,
         duration: TimeInterval,
         isSnapped: Bool,
+        isCancelling: Bool = false,
         updateText: Bool,
         showsLabel: Bool = true
     ) {
@@ -193,7 +196,7 @@ private final class DragSurfaceView: NSView {
             // Measure before laying out, so the pill takes the width of the
             // text it is about to show rather than the previous one.
             if updateText {
-                updateLabelText(duration: duration, isSnapped: isSnapped)
+                updateLabelText(duration: duration, isSnapped: isSnapped, isCancelling: isCancelling)
             }
             layoutLabel(cursor: cursor)
         }
@@ -255,9 +258,12 @@ private final class DragSurfaceView: NSView {
         )
     }
 
-    private func updateLabelText(duration: TimeInterval, isSnapped: Bool) {
-        let durationString = DurationText.dragSelection(duration)
-        let fireTimeString = "at \(TimerDateText.fireTime(after: duration))"
+    private func updateLabelText(duration: TimeInterval, isSnapped: Bool, isCancelling: Bool) {
+        // Back on the icon, letting go starts nothing.
+        let durationString = isCancelling ? "Cancel" : DurationText.dragSelection(duration)
+        let fireTimeString = isCancelling
+            ? "release on the icon"
+            : "at \(TimerDateText.fireTime(after: duration))"
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineSpacing = 2

@@ -56,6 +56,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - Press and drag away from the icon. The floating label moves through a fixed ladder—every minute to 15 minutes, every 5 minutes to 1 hour, every 15 minutes to 4 hours, then every 30 minutes—and shows the exact trigger time in real time.
 - Precise and Snappy start exactly the duration shown at release. Throwable adds momentum while the pointer is moving, then smoothly settles back to the stable preview when you pause.
 - Release to start the timer. A prompt then offers to name it; this prompt can be disabled in Preferences. The name field wraps and takes several lines: Return saves the name, Shift-Return adds a line, Escape keeps the timer under its default name, and **Discard Timer** removes it. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
+- To back out of a drag, bring the pointer back onto the icon, where the label reads **Cancel**, and let go, or press Escape while still holding. Neither starts a timer.
 - Open the `…` menu beside a timer to pin it to the menu bar or edit its label, identity, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
 - Click **Other length or time…** under Quick start to type a length such as `7`, `25m`, `90s`, `1m 30s`, `1h 30m` or `1:30` (hours and minutes), or a time of day such as `@3:30pm`, `at 15:30` or `until 4`, and start it with Return. The button names what it read. A time from 1 to 12 with no am or pm means the next time the clock reads it.
