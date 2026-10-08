@@ -3,11 +3,40 @@ import Combine
 import Foundation
 import os
 
+/// Timers that Cancel, Mark done or Stop all has just taken off the list,
+/// kept for a few seconds so that one click can put them back.
+struct TimerRemoval: Equatable, Identifiable {
+    enum Kind: Equatable {
+        case cancelled
+        case markedDone
+        case stoppedAll
+    }
+
+    let id = UUID()
+    var kind: Kind
+    var timers: [TimerRecord]
+    var historyEntryIDs: [UUID]
+    var removedAt: Date
+
+    var summary: String {
+        let name = timers.first?.label ?? "timer"
+        switch kind {
+        case .cancelled: return "Cancelled \(name)"
+        case .markedDone: return "Marked \(name) done"
+        case .stoppedAll: return "Stopped \(timers.count) \(timers.count == 1 ? "timer" : "timers")"
+        }
+    }
+}
+
 final class TimerEngine: ObservableObject {
+    /// How long a removal can be undone.
+    static let undoWindow: TimeInterval = 10
+
     @Published private(set) var timers: [TimerRecord] = []
     @Published private(set) var pendingExpiries: [PendingExpiry] = []
     @Published private(set) var historyEntries: [TimerHistoryEntry] = []
     @Published private(set) var activeAlert: TimerRecord?
+    @Published private(set) var undoableRemoval: TimerRemoval?
 
     private static let logger = Logger(subsystem: "com.dragtimer.app", category: "persistence")
 
@@ -24,6 +53,7 @@ final class TimerEngine: ObservableObject {
     private var activeAudioExpiryID: UUID?
     private var didRequestNotificationAuthorization = false
     private var permissionObservation: AnyCancellable?
+    private var undoExpiry: DispatchWorkItem?
 
     init(
         persistence: TimerPersistence,
@@ -81,6 +111,7 @@ final class TimerEngine: ObservableObject {
         }
         scheduler.setEventHandler {}
         scheduler.cancel()
+        undoExpiry?.cancel()
     }
 
     var currentExpiry: PendingExpiry? { pendingExpiries.first }
@@ -190,13 +221,12 @@ final class TimerEngine: ObservableObject {
         resolution: ExpiryResolution? = nil
     ) {
         guard let timer = timers.first(where: { $0.id == id }) else { return }
-        if let outcome {
-            appendHistory(TimerHistoryEntry(
-                timer: timer,
-                endedAt: now(),
-                outcome: outcome,
-                resolution: resolution
-            ))
+        let endedAt = now()
+        let entry = outcome.map {
+            TimerHistoryEntry(timer: timer, endedAt: endedAt, outcome: $0, resolution: resolution)
+        }
+        if let entry {
+            appendHistory(entry)
         }
         heap.remove(id: id)
         timers.removeAll { $0.id == id }
@@ -204,6 +234,58 @@ final class TimerEngine: ObservableObject {
         persistHistory()
         persistActiveTimers()
         rearmScheduler()
+        // A discard has no entry and is not offered back: it was asked for
+        // by name, from the prompt that had only just created the timer.
+        if let entry {
+            offerUndo(TimerRemoval(
+                kind: entry.outcome == .cancelled ? .cancelled : .markedDone,
+                timers: [timer],
+                historyEntryIDs: [entry.id],
+                removedAt: endedAt
+            ))
+        }
+    }
+
+    /// Puts back what the last Cancel, Mark done or Stop all removed, with
+    /// the end times the timers had, and takes their entries out of history.
+    /// A timer whose end has passed in the meantime rings at once.
+    func undoLastRemoval() {
+        guard let removal = undoableRemoval,
+              now().timeIntervalSince(removal.removedAt) <= Self.undoWindow else { return }
+        dismissUndo()
+        let entryIDs = Set(removal.historyEntryIDs)
+        historyEntries.removeAll { entryIDs.contains($0.id) }
+        requestNotificationAuthorizationOnce()
+        for timer in removal.timers where !timers.contains(where: { $0.id == timer.id }) {
+            timers.append(timer)
+            guard !timer.isPaused else { continue }
+            heap.insert(timer)
+            notificationService.schedule(timer)
+        }
+        sortTimers()
+        // Timers first. Launch treats a timer that also has a history entry
+        // as ended, so a crash between the two writes leaves the removal
+        // standing instead of losing the timer from both files.
+        persistActiveTimers()
+        persistHistory()
+        rearmScheduler()
+    }
+
+    func dismissUndo() {
+        undoExpiry?.cancel()
+        undoExpiry = nil
+        undoableRemoval = nil
+    }
+
+    private func offerUndo(_ removal: TimerRemoval) {
+        undoExpiry?.cancel()
+        undoableRemoval = removal
+        let expiry = DispatchWorkItem { [weak self] in
+            guard let self, self.undoableRemoval?.id == removal.id else { return }
+            self.undoableRemoval = nil
+        }
+        undoExpiry = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: expiry)
     }
 
     /// Pushes an active timer back by its snooze length. The planned duration
@@ -269,8 +351,12 @@ final class TimerEngine: ObservableObject {
 
     func cancelAll() {
         let endedAt = now()
-        for timer in timers {
-            appendHistory(TimerHistoryEntry(timer: timer, endedAt: endedAt, outcome: .cancelled))
+        let stopped = timers
+        var entryIDs: [UUID] = []
+        for timer in stopped {
+            let entry = TimerHistoryEntry(timer: timer, endedAt: endedAt, outcome: .cancelled)
+            appendHistory(entry)
+            entryIDs.append(entry.id)
             notificationService.remove(timerID: timer.id)
         }
         heap = DeadlineHeap()
@@ -279,6 +365,14 @@ final class TimerEngine: ObservableObject {
         persistHistory()
         persistActiveTimers()
         rearmScheduler()
+        if !stopped.isEmpty {
+            offerUndo(TimerRemoval(
+                kind: .stoppedAll,
+                timers: stopped,
+                historyEntryIDs: entryIDs,
+                removedAt: endedAt
+            ))
+        }
     }
 
     func silenceExpiryAudio() {

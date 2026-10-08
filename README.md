@@ -16,7 +16,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Save named routines such as Pomodoro or Morning routine and launch all of their timers together.
 - Pause, resume, reset, edit, add time to, cancel, or mark timers done early from the menu-bar popover.
 - Snooze, restart, silence, or mark a finished timer done without losing other simultaneous expiries.
-- Stop every active timer at once.
+- Stop every active timer at once, and undo that, a cancel or a Mark done for ten seconds afterwards.
 - Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
 - Receive a macOS notification with sound when a timer finishes.
 - Set defaults for every new timer in Preferences.
@@ -63,6 +63,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - Click the checkmark beside a running timer, or choose **Mark done** in the `…` menu, to finish it early. It is recorded in history as completed and never rings.
 - At expiry, use **Snooze**, **Restart**, or **Mark done**. The speaker button silences audio without resolving the expiry card.
 - Click **Stop all** at the bottom of the popover to cancel every active timer and stop ringing audio. Existing expiry cards still require an explicit action.
+- For ten seconds after **Stop all**, **Cancel timer** or **Mark done** on a running timer, the popover offers **Undo** (also Command-Z). It puts the timers back with the end times they had, paused ones still paused, and takes them out of history.
 - Use the history button in the footer to review completed and cancelled timers, filter the list, clear it, or start a timer again.
 
 ### Preferences
