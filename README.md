@@ -63,12 +63,12 @@ shasum -a 256 -c SHA256SUMS.txt
 - Right-click the menu-bar icon for Timer History, Settings and Quit.
 - Click a routine in the compact Routines strip to start every timer snapshot in that routine at once. The launched timers remain independently controllable.
 - Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
-- To change how long a running timer has left, use **Add 1 min**, **Add N min** (its snooze length) or **Subtract 1 min** in the `…` menu; these leave its planned length alone, so Reset still returns to what was set. To set an exact time, choose **Edit timer** and type it into **Time left**: the countdown starts again at that length, which becomes the planned length.
+- To change how long a running timer has left, use **Add 1 min**, **Add N min** (its snooze length) or **Subtract 1 min** in the `…` menu; these leave its planned length alone, so Reset still returns to what was set. To set an exact time, choose **Edit timer** and type it into **Time left**: the timer has that long from now, and that becomes its planned length. A paused timer stays paused.
 - Click the checkmark beside a running timer, or choose **Mark done** in the `…` menu, to finish it early. It is recorded in history as completed and never rings.
 - At expiry, use **Snooze**, **Restart**, or **Mark done**. The speaker button silences audio without resolving the expiry card.
-- Until a finished timer is answered, the menu-bar icon is solid red and counts up from the moment it ended (`+2:15`), ahead of any running countdown. Ring shows a full red ring instead, and Count keeps its number beside the red icon. The card says how long ago the timer finished.
+- Until a finished timer is answered, the menu-bar icon is solid red and counts up from the moment it ended (`+2:15`), ahead of any running countdown. Ring shows a full red ring instead. Count shows the red icon beside its number, or alone when no timer is running and the zero is hidden. The card says how long ago the timer finished.
 - Click **Stop all** at the bottom of the popover to cancel every active timer and stop ringing audio. Existing expiry cards still require an explicit action.
-- For ten seconds after **Stop all**, **Cancel timer** or **Mark done** on a running timer, the popover offers **Undo** (also Command-Z). It puts the timers back with the end times they had, paused ones still paused, and takes them out of history.
+- For ten seconds after **Stop all**, **Cancel timer** or **Mark done** on a running timer, the popover offers **Undo**. Command-Z does the same, except while a length is being typed or Timer details is open. It puts the timers back with the end times they had, paused ones still paused, and takes them out of history. A timer whose end has passed in the meantime finishes and rings at once.
 - Use the history button in the footer to review completed and cancelled timers, filter the list, clear it, or start a timer again.
 
 ### Preferences
