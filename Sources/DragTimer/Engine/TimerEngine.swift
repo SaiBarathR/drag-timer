@@ -361,7 +361,6 @@ final class TimerEngine: ObservableObject {
         }
 
         let expiredIDs = Set(expiredTimers.map(\.id))
-        timers.removeAll { expiredIDs.contains($0.id) }
         for timer in expiredTimers {
             notificationService.remove(timerID: timer.id)
             let expiry = PendingExpiry(timer: timer, expiredAt: currentDate)
@@ -374,6 +373,9 @@ final class TimerEngine: ObservableObject {
             ))
         }
         sortPendingExpiries()
+        // Published after the pending expiries: an observer of both lists
+        // must never see a timer that has finished in neither of them.
+        timers.removeAll { expiredIDs.contains($0.id) }
 
         // Persist pending first. If the app exits before history or timers are
         // saved, launch reconciliation can finish the transition without a

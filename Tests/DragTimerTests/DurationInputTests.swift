@@ -87,7 +87,9 @@ final class DurationInputTests: XCTestCase {
     func testClockTimeWithAmOrPmIsTheNextSuchTime() {
         let now = date(hour: 14, minute: 20, second: 10)
 
-        for text in ["@3:30pm", "@3:30 pm", "at 3:30pm", "until 3:30PM", "@ 3:30pm", "at 15:30", "@15:30"] {
+        for text in [
+            "@3:30pm", "@3:30 pm", "at 3:30pm", "until 3:30PM", "@ 3:30pm", "at 15:30", "@15:30", "@3: 30pm", "@3 : 30 pm"
+        ] {
             XCTAssertEqual(entry(text, now), .clockTime(date(hour: 15, minute: 30)), text)
         }
         XCTAssertEqual(entry("@2pm", now), .clockTime(date(day: 9, hour: 14, minute: 0)))
@@ -131,6 +133,7 @@ final class DurationInputTests: XCTestCase {
         let tomorrow = calendar.date(from: DateComponents(year: 2026, month: 10, day: 9, hour: 15, minute: 30))!
 
         XCTAssertEqual(TimerEntry.length(90).startTitle(now: now), "Start 1m 30s")
+        XCTAssertEqual(TimerEntry.length(5_415).startTitle(now: now), "Start 1h 30m 15s")
         XCTAssertEqual(
             TimerEntry.clockTime(laterToday).startTitle(now: now),
             "Ring at \(TimerDateText.fireTime(for: laterToday))"

@@ -8,6 +8,7 @@ protocol DragOverlayPresenting: AnyObject {
         cursorScreen: CGPoint,
         duration: TimeInterval,
         isSnapped: Bool,
+        isCancelling: Bool,
         updateText: Bool
     )
 }
@@ -30,6 +31,7 @@ struct DragGestureEnvironment {
     var makeFrameDriver: () -> DragFrameDriving
     var performHaptic: (NSHapticFeedbackManager.FeedbackPattern) -> Void
     var requestLabel: (Date, String) -> TimerLabelPromptOutcome
+    var makeCancelKey: () -> DragCancelKeying
 
     static let live = DragGestureEnvironment(
         makeOverlay: { rulerLayout, countdownScale, highContrast in
@@ -43,12 +45,15 @@ struct DragGestureEnvironment {
         // Resolve the performer for every tick so AppKit can target whichever
         // Force Touch trackpad is currently driving the gesture.
         performHaptic: { NSHapticFeedbackManager.defaultPerformer.perform($0, performanceTime: .now) },
-        requestLabel: { TimerLabelPrompt.requestLabel(targetFireDate: $0, currentLabel: $1) }
+        requestLabel: { TimerLabelPrompt.requestLabel(targetFireDate: $0, currentLabel: $1) },
+        makeCancelKey: { DragCancelKey() }
     )
 }
 
 final class DragGestureController {
     private static let activationDistance = StatusItemPointerSession.activationDistance
+    /// A drag brought back this close to the icon is released as "no timer".
+    private static let cancelDistance = activationDistance * 0.75
 
     private enum GestureState {
         case idle
@@ -72,6 +77,8 @@ final class DragGestureController {
     private var pendingDuration: TimeInterval?
     private var lastLabelTimestamp: TimeInterval = 0
     private var lastDetentIndex: Int?
+    private var isCancelling = false
+    private var cancelKey: DragCancelKeying?
 
     init(
         timerEngine: TimerEngine,
@@ -106,6 +113,17 @@ final class DragGestureController {
         pendingDuration = nil
         lastLabelTimestamp = 0
         lastDetentIndex = nil
+        isCancelling = false
+
+        let cancelKey = environment.makeCancelKey()
+        cancelKey.onPress = { [weak self] in
+            // Escape only aborts a drag that is still held; once released,
+            // the timer is already decided.
+            guard let self, self.state == .tracking else { return }
+            self.finish()
+        }
+        cancelKey.register()
+        self.cancelKey = cancelKey
 
         let overlay = environment.makeOverlay(
             DragRulerLayout(
@@ -125,6 +143,7 @@ final class DragGestureController {
             cursorScreen: pointer,
             duration: newPhysics.displayDuration,
             isSnapped: newPhysics.isSnapped,
+            isCancelling: false,
             updateText: true
         )
 
@@ -153,16 +172,46 @@ final class DragGestureController {
         cursor = pointer
         displayLink?.retarget(to: screen(containing: pointer))
 
+        let wasCancelling = isCancelling
+        isCancelling = didMoveEnough && Self.isOnIcon(distance: distance, wasOnIcon: wasCancelling)
+        if isCancelling {
+            if !wasCancelling, settings.hapticsEnabled {
+                performHaptic(.generic)
+            }
+            return
+        }
         updateHaptics(didActivate: didActivate, enteredSnap: enteredSnap)
+    }
+
+    /// Whether a drag that has left the icon is back on it. The zone is
+    /// entered inside the activation distance and left only at it, so a
+    /// pointer resting on the edge does not flicker between the two.
+    private static func isOnIcon(distance: CGFloat, wasOnIcon: Bool) -> Bool {
+        distance < (wasOnIcon ? activationDistance : cancelDistance)
     }
 
     func end(pointer: CGPoint, timestamp: TimeInterval) {
         guard state == .tracking, let origin, var physics else { return }
         cursor = pointer
+        // Escape went down a moment before the button came up, and its
+        // callback has not run yet: the key was taken, so honour it.
+        if cancelKey?.wasPressed == true {
+            finish()
+            return
+        }
+        cancelKey?.unregister()
 
         let dx = pointer.x - origin.x
         let dy = pointer.y - origin.y
         let finalDistance = hypot(dx, dy)
+        // Let go back on the icon after pulling away: no timer, and no
+        // popover either, which is what a plain click is for. Stored, so
+        // that a release off the icon also clears it for the settle frames.
+        isCancelling = didMoveEnough && Self.isOnIcon(distance: finalDistance, wasOnIcon: isCancelling)
+        if isCancelling {
+            finish()
+            return
+        }
         let didActivate = !didMoveEnough && finalDistance >= Self.activationDistance
         let enteredSnap = physics.updateReleaseDistance(Self.mappedDistance(for: finalDistance))
         self.physics = physics
@@ -175,6 +224,7 @@ final class DragGestureController {
             cursorScreen: pointer,
             duration: physics.displayDuration,
             isSnapped: physics.isSnapped,
+            isCancelling: false,
             updateText: true
         )
 
@@ -227,7 +277,8 @@ final class DragGestureController {
             originScreen: origin,
             cursorScreen: cursor,
             duration: physics.displayDuration,
-            isSnapped: physics.isSnapped,
+            isSnapped: physics.isSnapped && !isCancelling,
+            isCancelling: isCancelling,
             updateText: updateText
         )
 
@@ -268,6 +319,9 @@ final class DragGestureController {
     }
 
     private func finish(as finalState: GestureState = .idle) {
+        cancelKey?.unregister()
+        cancelKey = nil
+        isCancelling = false
         displayLink?.stop()
         displayLink = nil
         overlay?.hide()

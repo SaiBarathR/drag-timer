@@ -17,6 +17,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 - Save named routines such as Pomodoro or Morning routine and launch all of their timers together.
 - Pause, resume, reset, edit, add or subtract time, set a new time left, cancel, or mark timers done early from the menu-bar popover.
 - Snooze, restart, silence, or mark a finished timer done without losing other simultaneous expiries.
+- See a finished timer in the menu bar, counting up from the moment it ended, until you answer it.
 - Stop every active timer at once.
 - Use Glass or the system beep, with per-timer volume, notification, snooze, and loop settings.
 - Receive a macOS notification with sound when a timer finishes.
@@ -55,6 +56,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - Press and drag away from the icon. The floating label moves through a fixed ladder—every minute to 15 minutes, every 5 minutes to 1 hour, every 15 minutes to 4 hours, then every 30 minutes—and shows the exact trigger time in real time.
 - Precise and Snappy start exactly the duration shown at release. Throwable adds momentum while the pointer is moving, then smoothly settles back to the stable preview when you pause.
 - Release to start the timer. A prompt then offers to name it; this prompt can be disabled in Preferences. The name field wraps and takes several lines: Return saves the name, Shift-Return adds a line, Escape keeps the timer under its default name, and **Discard Timer** removes it. Releasing near common values—such as 1, 5, 15, or 30 minutes—snaps to that duration.
+- To back out of a drag, bring the pointer back onto the icon, where the label reads **Cancel**, and let go, or press Escape while still holding. Neither starts a timer.
 - Open the `…` menu beside a timer to pin it to the menu bar or edit its label, identity, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
 - Click **Other length or time…** under Quick start to type a length such as `7`, `25m`, `90s`, `1m 30s`, `1h 30m` or `1:30` (hours and minutes), or a time of day such as `@3:30pm`, `at 15:30` or `until 4`, and start it with Return. The button names what it read. A time from 1 to 12 with no am or pm means the next time the clock reads it.
@@ -64,6 +66,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - To change how long a running timer has left, use **Add 1 min**, **Add N min** (its snooze length) or **Subtract 1 min** in the `…` menu; these leave its planned length alone, so Reset still returns to what was set. To set an exact time, choose **Edit timer** and type it into **Time left**: the countdown starts again at that length, which becomes the planned length.
 - Click the checkmark beside a running timer, or choose **Mark done** in the `…` menu, to finish it early. It is recorded in history as completed and never rings.
 - At expiry, use **Snooze**, **Restart**, or **Mark done**. The speaker button silences audio without resolving the expiry card.
+- Until a finished timer is answered, the menu-bar icon is solid red and counts up from the moment it ended (`+2:15`), ahead of any running countdown. Ring shows a full red ring instead, and Count keeps its number beside the red icon. The card says how long ago the timer finished.
 - Click **Stop all** at the bottom of the popover to cancel every active timer and stop ringing audio. Existing expiry cards still require an explicit action.
 - Use the history button in the footer to review completed and cancelled timers, filter the list, clear it, or start a timer again.
 
