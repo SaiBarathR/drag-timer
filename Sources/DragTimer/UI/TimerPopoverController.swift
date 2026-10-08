@@ -481,8 +481,10 @@ private struct TimerListView: View {
                     Text("\(expiry.timer.label) finished")
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(2)
-                    if timerEngine.pendingExpiries.count > 1 {
-                        Text("1 of \(timerEngine.pendingExpiries.count)")
+                    // Re-read on each whole minute since it finished, and
+                    // only while the popover is on screen.
+                    TimelineView(.periodic(from: expiry.expiredAt, by: 60)) { context in
+                        Text(expiryCaption(for: expiry, at: context.date))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -514,6 +516,13 @@ private struct TimerListView: View {
         .accessibilityLabel(timerEngine.pendingExpiries.count > 1
             ? "\(expiry.timer.label) finished, 1 of \(timerEngine.pendingExpiries.count)"
             : "\(expiry.timer.label) finished")
+    }
+
+    private func expiryCaption(for expiry: PendingExpiry, at date: Date) -> String {
+        let ago = MenuBarCountdown.finishedAgoText(since: expiry.expiredAt, at: date)
+        let caption = ago.prefix(1).uppercased() + ago.dropFirst()
+        let count = timerEngine.pendingExpiries.count
+        return count > 1 ? "\(caption) · 1 of \(count)" : caption
     }
 
     private var emptyState: some View {
