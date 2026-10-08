@@ -222,6 +222,16 @@ final class AppSettings: ObservableObject {
         physics = .forPreset(newPreset, basedOn: physics)
     }
 
+    /// Puts every control of the Feel pane back to how a new install has
+    /// it. Choosing Snappy from the Preset menu only sets the release; it
+    /// leaves snapping, haptics and the drag limit as they are.
+    func restoreDragDefaults() {
+        hapticsEnabled = true
+        snapDuringDrag = true
+        preset = .snappy
+        physics = .forPreset(.snappy)
+    }
+
     func updatePhysics(_ update: (inout DragPhysicsSettings) -> Void) {
         var copy = physics
         update(&copy)

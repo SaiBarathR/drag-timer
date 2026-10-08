@@ -206,6 +206,20 @@ final class TimerEngine: ObservableObject {
         }
     }
 
+    /// What a just-dragged timer is doing now. Its name prompt stays open
+    /// over a timer that is already running, and that timer can ring, or be
+    /// stopped or answered some other way, before it has been named.
+    func nameableState(of id: UUID) -> NameableTimerState {
+        let ids = lineage(of: id)
+        if let timer = timers.last(where: { ids.contains($0.id) }) {
+            return timer.pausedRemaining.map { .paused(remaining: $0) } ?? .running(fireDate: timer.fireDate)
+        }
+        if let expiry = pendingExpiries.last(where: { ids.contains($0.timer.id) }) {
+            return .finished(dueAt: expiry.dueAt)
+        }
+        return .gone
+    }
+
     /// The ids one dragged timer has gone by: its own, then the timer made by
     /// each snooze or restart of its expiry. The name prompt can still be
     /// open when that happens, and it only knows the first id.
@@ -360,6 +374,15 @@ final class TimerEngine: ObservableObject {
         if var timer = timers.first(where: { ids.contains($0.id) }) {
             timer.label = label
             update(timer)
+        }
+        // Stopped while its name was being typed, it comes back from Undo
+        // under that name.
+        if var removal = undoableRemoval {
+            let removed = removal.timers.indices.filter { ids.contains(removal.timers[$0].id) }
+            for index in removed {
+                removal.timers[index].label = label
+            }
+            if !removed.isEmpty { undoableRemoval = removal }
         }
     }
 

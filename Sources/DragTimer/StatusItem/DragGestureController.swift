@@ -30,7 +30,7 @@ struct DragGestureEnvironment {
     var makeOverlay: (DragRulerLayout, CountdownScale, Bool) -> DragOverlayPresenting
     var makeFrameDriver: () -> DragFrameDriving
     var performHaptic: (NSHapticFeedbackManager.FeedbackPattern) -> Void
-    var requestLabel: (Date, String) -> TimerLabelPromptOutcome
+    var requestLabel: (Date, String, @escaping () -> NameableTimerState) -> TimerLabelPromptOutcome
     var makeCancelKey: () -> DragCancelKeying
 
     static let live = DragGestureEnvironment(
@@ -45,7 +45,7 @@ struct DragGestureEnvironment {
         // Resolve the performer for every tick so AppKit can target whichever
         // Force Touch trackpad is currently driving the gesture.
         performHaptic: { NSHapticFeedbackManager.defaultPerformer.perform($0, performanceTime: .now) },
-        requestLabel: { TimerLabelPrompt.requestLabel(targetFireDate: $0, currentLabel: $1) },
+        requestLabel: { TimerLabelPrompt.requestLabel(targetFireDate: $0, currentLabel: $1, timerState: $2) },
         makeCancelKey: { DragCancelKey() }
     )
 }
@@ -307,7 +307,9 @@ final class DragGestureController {
         // timer, including this one, while the prompt was open.
         let presentPrompt = Timer(timeInterval: 0, repeats: false) { [weak self] _ in
             guard let self else { return }
-            let outcome = self.environment.requestLabel(timer.fireDate, timer.label)
+            let outcome = self.environment.requestLabel(timer.fireDate, timer.label) { [weak self] in
+                self?.timerEngine.nameableState(of: timer.id) ?? .gone
+            }
             self.state = .idle
             switch outcome {
             case let .renamed(label): self.timerEngine.rename(id: timer.id, to: label)

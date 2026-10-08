@@ -197,6 +197,211 @@ final class TimerPopoverPresentationTests: XCTestCase {
         XCTAssertEqual(controller.typedLengthForTesting.text, "")
     }
 
+    /// Sized only when it was shown, the popover squeezed the timer list to
+    /// nothing, or pushed the presets and the footer out of view, once more
+    /// arrived in it than it had opened with.
+    @MainActor
+    func testAnOpenPopoverGrowsWithWhatArrivesInIt() throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        // A named preset puts the grid in two columns; with a routine as
+        // well, nothing in the popover is left over to absorb new content.
+        fixture.settings.setQuickStartPresets(
+            (1...8).map { QuickStartPreset(duration: TimeInterval($0 * 300)) }
+                + [QuickStartPreset(duration: 45, label: "Quick 45")]
+        )
+        XCTAssertTrue(fixture.settings.addRoutine(TimerRoutine(
+            name: "Two short timers",
+            timers: [RoutineTimerDefinition(duration: 20, options: TimerOptions(label: "First"))]
+        )))
+        let controller = makeController(fixture: fixture)
+        let anchor = makeVisibleAnchorWindow(on: screen)
+        defer { anchor.window?.orderOut(nil) }
+        controller.toggle(relativeTo: anchor, positioningRect: anchor.bounds)
+        runMainLoopBriefly()
+        let opened = controller.currentContentSize
+
+        // A timer finishes, two more start, and cancelling one leaves its
+        // Undo offer: a card, a row and a banner the popover did not have.
+        let finished = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Finished"))
+        fixture.engine.processExpiries(at: finished.fireDate.addingTimeInterval(1))
+        fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Running"))
+        let cancelled = fixture.engine.createTimer(duration: 300, options: TimerOptions(label: "Cancelled"))
+        fixture.engine.cancel(id: cancelled.id)
+        let limit = Date().addingTimeInterval(5)
+        repeat {
+            runMainLoopBriefly()
+        } while abs(controller.currentContentSize.height - controller.currentFittingContentSize.height) > 0.5
+            && Date() < limit
+
+        // The empty-state hint gave way to a card, a row and the banner.
+        XCTAssertGreaterThan(controller.currentFittingContentSize.height, opened.height + 40)
+        XCTAssertEqual(
+            controller.currentContentSize.height,
+            controller.currentFittingContentSize.height,
+            accuracy: 0.5
+        )
+        controller.closeForTesting()
+    }
+
+    /// On a small screen the popover must not grow past what fits below the
+    /// menu bar; the list gives up the height and scrolls.
+    @MainActor
+    func testThePopoverStopsGrowingAtTheHeightOfItsScreen() throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = makeController(fixture: fixture)
+        for index in 1...9 {
+            fixture.engine.createTimer(duration: TimeInterval(index * 600), options: TimerOptions(label: "Timer \(index)"))
+        }
+        runMainLoopBriefly()
+        controller.prepareForPresentationForTesting()
+        let wanted = controller.currentFittingContentSize.height
+        XCTAssertGreaterThan(wanted, 420)
+
+        // Opening sets the limit and measures in the same turn.
+        controller.setMaximumContentHeightForTesting(420)
+        controller.prepareForPresentationForTesting()
+        XCTAssertEqual(controller.currentContentSize.height, 420, accuracy: 0.5)
+
+        // An open popover keeps to the limit while more arrives in it.
+        let anchor = makeVisibleAnchorWindow(on: screen)
+        defer { anchor.window?.orderOut(nil) }
+        controller.toggle(relativeTo: anchor, positioningRect: anchor.bounds)
+        controller.setMaximumContentHeightForTesting(420)
+        runMainLoopBriefly()
+        XCTAssertEqual(controller.currentContentSize.height, 420, accuracy: 0.5)
+
+        let finished = fixture.engine.createTimer(duration: 60, options: TimerOptions(label: "Finished"))
+        fixture.engine.processExpiries(at: finished.fireDate.addingTimeInterval(1))
+        for _ in 0..<6 { runMainLoopBriefly() }
+        XCTAssertEqual(controller.currentContentSize.height, 420, accuracy: 0.5)
+
+        // Given the room, it takes what the finished card needs as well.
+        controller.setMaximumContentHeightForTesting(2000)
+        let limit = Date().addingTimeInterval(5)
+        repeat {
+            runMainLoopBriefly()
+        } while controller.currentContentSize.height < wanted + 40 && Date() < limit
+        XCTAssertGreaterThan(controller.currentContentSize.height, wanted + 40)
+        XCTAssertEqual(
+            controller.currentContentSize.height,
+            controller.currentFittingContentSize.height,
+            accuracy: 0.5
+        )
+        controller.closeForTesting()
+    }
+
+    @MainActor
+    func testOpeningTakesTheHeightLimitFromTheScreenOfTheIcon() throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = makeController(fixture: fixture)
+        let anchor = makeVisibleAnchorWindow(on: screen)
+        defer { anchor.window?.orderOut(nil) }
+
+        controller.toggle(relativeTo: anchor, positioningRect: anchor.bounds)
+        runMainLoopBriefly()
+
+        XCTAssertEqual(
+            controller.maximumContentHeightForTesting,
+            max(
+                TimerPopoverGeometry.minimumContentHeight,
+                screen.visibleFrame.height - TimerPopoverController.screenMarginForTesting
+            ),
+            accuracy: 0.5
+        )
+        controller.closeForTesting()
+    }
+
+    /// The status item grows to its left when its first countdown appears,
+    /// carrying the icon with it. The open popover used to follow one step
+    /// late: it jumped sideways the next time it resized.
+    @MainActor
+    func testAnOpenPopoverStaysPutWhenTheStatusItemGrows() throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let controller = makeController(fixture: fixture)
+        let anchor = makeVisibleAnchorWindow(on: screen)
+        let anchorWindow = try XCTUnwrap(anchor.window)
+        defer { anchorWindow.orderOut(nil) }
+        controller.toggle(
+            relativeTo: anchor,
+            positioningRect: StatusItemGeometry.popoverAnchorRect(in: anchor.bounds, hasCountdownLayout: false)
+        )
+        runMainLoopBriefly()
+        let opened = try XCTUnwrap(controller.currentPopoverWindowFrame)
+
+        // The item reports its new anchor first; its window moves later.
+        controller.anchorDidChange(in: anchor)
+        var frame = anchorWindow.frame
+        frame.origin.x -= 30
+        frame.size.width += 30
+        anchorWindow.setFrame(frame, display: true)
+        runMainLoopBriefly()
+        XCTAssertEqual(anchor.bounds.width, 62, accuracy: 0.5)
+
+        // More arrives than the popover has room for, so it resizes.
+        for minutes in 1...5 {
+            fixture.engine.createTimer(duration: TimeInterval(minutes * 60), options: TimerOptions(label: "Timer"))
+        }
+        let limit = Date().addingTimeInterval(5)
+        repeat {
+            runMainLoopBriefly()
+        } while abs(controller.currentContentSize.height - controller.currentFittingContentSize.height) > 0.5
+            && Date() < limit
+
+        let resized = try XCTUnwrap(controller.currentPopoverWindowFrame)
+        XCTAssertGreaterThan(resized.height, opened.height + 40)
+        XCTAssertEqual(resized.minX, opened.minX, accuracy: 0.5)
+        XCTAssertEqual(resized.maxY, opened.maxY, accuracy: 0.5)
+
+        // Pushed a little way by its neighbours, the item is still under
+        // the spot the popover is attached to, and nothing moves.
+        frame.origin.x -= 6
+        anchorWindow.setFrame(frame, display: true)
+        fixture.engine.createTimer(duration: 3_600, options: TimerOptions(label: "Timer"))
+        try waitForPopover(controller, tallerThan: resized.height + 20)
+        let nudged = try XCTUnwrap(controller.currentPopoverWindowFrame)
+        XCTAssertEqual(nudged.minX, opened.minX, accuracy: 0.5)
+
+        // Pushed right off that spot, the popover goes along only as far as
+        // it must to stay on the item and keep its arrow.
+        frame.origin.x -= 40
+        anchorWindow.setFrame(frame, display: true)
+        fixture.engine.cancelAll()
+        try waitForPopover(controller, shorterThan: nudged.height - 20)
+        let pushed = try XCTUnwrap(controller.currentPopoverWindowFrame)
+        XCTAssertTrue(anchor.bounds.contains(controller.currentPositioningRect))
+        XCTAssertLessThan(pushed.minX, opened.minX - 1)
+        XCTAssertGreaterThan(pushed.minX, opened.minX - 46 + 1)
+        controller.closeForTesting()
+    }
+
+    @MainActor
+    private func waitForPopover(
+        _ controller: TimerPopoverController,
+        tallerThan height: CGFloat = 0,
+        shorterThan limit: CGFloat = .infinity
+    ) throws {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            runMainLoopBriefly()
+            if let current = controller.currentPopoverWindowFrame?.height, current > height, current < limit {
+                return
+            }
+        }
+        XCTFail("The popover did not resize")
+    }
+
     @MainActor
     private func makeVisibleAnchorWindow(on screen: NSScreen) -> NSView {
         let anchorSize = NSSize(width: 32, height: 22)

@@ -147,6 +147,60 @@ final class TimerLabelPromptTests: XCTestCase {
         XCTAssertEqual(outcome, .renamed("Tea"))
     }
 
+    /// Stopped or marked done somewhere else, the timer leaves nothing to
+    /// name, and the prompt must not go on saying that it is running.
+    @MainActor
+    func testThePromptClosesItselfOnceItsTimerIsGone() {
+        _ = NSApplication.shared
+        let fireDate = Date().addingTimeInterval(300)
+        var state = NameableTimerState.running(fireDate: fireDate)
+        let controller = TimerLabelPromptController(targetFireDate: fireDate, timerState: { state })
+        DispatchQueue.main.async { state = .gone }
+        let watchdog = Timer(timeInterval: 5, repeats: false) { _ in
+            XCTFail("The prompt stayed open over a timer that was gone")
+            NSApp.abortModal()
+        }
+        RunLoop.main.add(watchdog, forMode: .common)
+        defer { watchdog.invalidate() }
+
+        XCTAssertEqual(controller.run(), .keptName)
+    }
+
+    /// A name already typed when the timer goes is still wanted: it reaches
+    /// the timer's History entry.
+    @MainActor
+    func testANameTypedBeforeTheTimerWentIsKept() {
+        _ = NSApplication.shared
+        let fireDate = Date().addingTimeInterval(300)
+        var state = NameableTimerState.running(fireDate: fireDate)
+        let controller = TimerLabelPromptController(targetFireDate: fireDate, timerState: { state })
+        DispatchQueue.main.async {
+            controller.labelTextViewForTesting.string = "  Tea  "
+            state = .gone
+        }
+        let watchdog = Timer(timeInterval: 5, repeats: false) { _ in
+            XCTFail("The prompt stayed open over a timer that was gone")
+            NSApp.abortModal()
+        }
+        RunLoop.main.add(watchdog, forMode: .common)
+        defer { watchdog.invalidate() }
+
+        XCTAssertEqual(controller.run(), .renamed("Tea"))
+    }
+
+    @MainActor
+    func testThePromptSaysWhatItsTimerIsDoing() {
+        _ = NSApplication.shared
+        let due = Date().addingTimeInterval(-5)
+        let running = TimerLabelPromptController(targetFireDate: due.addingTimeInterval(65))
+        let paused = TimerLabelPromptController(targetFireDate: due, timerState: { .paused(remaining: 83) })
+        let finished = TimerLabelPromptController(targetFireDate: due, timerState: { .finished(dueAt: due) })
+
+        XCTAssertTrue(running.detailTextForTesting.hasPrefix("Running · rings at "))
+        XCTAssertEqual(paused.detailTextForTesting, "Paused · 1:23 left")
+        XCTAssertEqual(finished.detailTextForTesting, "Finished at \(TimerDateText.fireTime(for: due))")
+    }
+
     /// Runs the real modal prompt and drives its editor once the modal loop
     /// is spinning. The watchdog keeps a broken prompt from hanging the suite.
     @MainActor

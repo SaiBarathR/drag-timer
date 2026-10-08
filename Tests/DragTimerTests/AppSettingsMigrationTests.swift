@@ -166,6 +166,46 @@ final class AppSettingsMigrationTests: XCTestCase {
         XCTAssertEqual(decoded, .default)
     }
 
+    func testRestoringDragDefaultsPutsTheWholeFeelPaneBackToANewInstall() {
+        let fixture = makeDefaults()
+        defer { fixture.cleanup() }
+        let fresh = makeDefaults()
+        defer { fresh.cleanup() }
+        let settings = AppSettings(defaults: fixture.defaults)
+        settings.applyPreset(.throwable)
+        settings.updatePhysics {
+            $0.snappingEnabled = false
+            $0.snapTolerance = 40
+        }
+        settings.setMaximumDragDurationHours(9)
+        settings.hapticsEnabled = false
+        settings.snapDuringDrag = false
+
+        // Choosing the preset alone leaves snapping, haptics and the limit.
+        settings.applyPreset(.snappy)
+        XCTAssertFalse(settings.physics.snappingEnabled)
+        XCTAssertEqual(settings.maximumDragDurationHours, 9)
+
+        settings.restoreDragDefaults()
+
+        let new = AppSettings(defaults: fresh.defaults)
+        XCTAssertEqual(settings.preset, new.preset)
+        XCTAssertEqual(settings.physics, new.physics)
+        XCTAssertEqual(settings.hapticsEnabled, new.hapticsEnabled)
+        XCTAssertEqual(settings.snapDuringDrag, new.snapDuringDrag)
+        XCTAssertTrue(settings.physics.snappingEnabled)
+        XCTAssertEqual(AppSettings(defaults: fixture.defaults).physics, new.physics)
+    }
+
+    func testAVolumeJustAboveZeroDoesNotReadAsZero() {
+        XCTAssertEqual(VolumeText.percent(0), "0%")
+        XCTAssertEqual(VolumeText.percent(0.004), "1%")
+        XCTAssertEqual(VolumeText.percent(0.1), "10%")
+        XCTAssertEqual(VolumeText.percent(0.799), "80%")
+        XCTAssertEqual(VolumeText.percent(1), "100%")
+        XCTAssertEqual(VolumeText.percent(1.4), "100%")
+    }
+
     private let storageKey = "DragTimer.AppSettings.v1"
 
     private func makeDefaults() -> (defaults: UserDefaults, cleanup: () -> Void) {

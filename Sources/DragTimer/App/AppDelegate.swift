@@ -42,8 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onPopoverRequested: { [weak popoverController] view, positioningRect in
                 popoverController?.toggle(relativeTo: view, positioningRect: positioningRect)
             },
-            onPopoverAnchorChanged: { [weak popoverController] view, positioningRect in
-                popoverController?.updatePositioningRect(positioningRect, relativeTo: view)
+            onPopoverAnchorChanged: { [weak popoverController] view, _ in
+                popoverController?.anchorDidChange(in: view)
             },
             onOpenSettings: { [weak self] in self?.showSettings() },
             onOpenHistory: { [weak self] in self?.showHistory() }

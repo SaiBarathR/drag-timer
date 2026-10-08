@@ -31,6 +31,24 @@ final class TimerUndoTests: XCTestCase {
         XCTAssertEqual(fixture.engine.pendingExpiries.map(\.timer.id), [timer.id])
     }
 
+    /// The name prompt closes when its timer is stopped under it, and hands
+    /// over what had been typed. The timer must not come back without it.
+    @MainActor
+    func testATimerRenamedWhileOnOfferComesBackUnderItsNewName() {
+        let fixture = makeFixture()
+        defer { fixture.cleanup() }
+        let timer = fixture.engine.createTimer(duration: 600, options: TimerOptions(label: "Timer"))
+
+        fixture.engine.cancel(id: timer.id)
+        fixture.engine.rename(id: timer.id, to: "Soup")
+        XCTAssertEqual(fixture.engine.historyEntries.map(\.label), ["Soup"])
+        XCTAssertEqual(fixture.engine.undoableRemoval?.summary, "Cancelled Soup")
+
+        fixture.engine.undoLastRemoval()
+        XCTAssertEqual(fixture.engine.timers.map(\.label), ["Soup"])
+        XCTAssertEqual(fixture.engine.timers.map(\.fireDate), [timer.fireDate])
+    }
+
     @MainActor
     func testUndoTakesBackMarkDone() {
         let fixture = makeFixture()
