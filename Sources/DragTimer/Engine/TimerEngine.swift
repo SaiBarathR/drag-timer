@@ -677,7 +677,13 @@ final class TimerEngine: ObservableObject {
         pendingExpiries.remove(at: expiryIndex)
 
         if activeAudioExpiryID == expiry.id {
-            silenceExpiryAudio()
+            // Answering the timer that is sounding ends its alert, not the
+            // turn of those waiting behind it. With nobody waiting, another
+            // unanswered timer takes over, as it always has.
+            audioPlayer.stop()
+            activeAlert = nil
+            activeAudioExpiryID = nil
+            soundNextWaitingAlert()
             chooseAudioExpiry(from: pendingExpiries)
         }
         // Commit any child first, then the idempotent history resolution, and
@@ -720,8 +726,12 @@ final class TimerEngine: ObservableObject {
         guard activeAlert?.loop != true else { return }
         activeAudioExpiryID = nil
         activeAlert = nil
-        // One arrival per alert, in the order they came; the rest keep
-        // waiting. An expiry answered in the meantime is no longer pending.
+        soundNextWaitingAlert()
+    }
+
+    /// One arrival per alert, in the order they came; the rest keep waiting.
+    /// An expiry answered in the meantime is no longer pending.
+    private func soundNextWaitingAlert() {
         while activeAudioExpiryID == nil, !waitingAudioExpiryIDs.isEmpty {
             let arrived = waitingAudioExpiryIDs.removeFirst()
             startAlert(for: pendingExpiries.filter { arrived.contains($0.id) })

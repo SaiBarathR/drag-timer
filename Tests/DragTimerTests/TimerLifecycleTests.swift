@@ -537,6 +537,39 @@ final class TimerLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    func testAnsweringTheTimerThatIsSoundingGivesTheNextOneItsTurn() {
+        let directory = temporaryDirectory()
+        let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
+        let audio = ControllableAudioSpy()
+        let engine = TimerEngine(
+            persistence: TimerPersistence(fileURL: directory.appendingPathComponent("timers.json")),
+            notificationService: NotificationService(center: nil),
+            audioPlayer: audio,
+            now: { clock.date }
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tea = engine.createTimer(duration: 60, options: TimerOptions(label: "Tea"))
+        engine.createTimer(duration: 61, options: TimerOptions(label: "Eggs"))
+        engine.createTimer(duration: 62, options: TimerOptions(label: "Toast"))
+        clock.date.addTimeInterval(60)
+        engine.processExpiries()
+        for _ in 0..<2 {
+            clock.date.addTimeInterval(1)
+            engine.processExpiries()
+        }
+
+        // Tea is still sounding when it is answered.
+        engine.markExpiryDone(id: engine.pendingExpiries.first { $0.timer.id == tea.id }!.id)
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs"])
+        XCTAssertEqual(engine.activeAlert?.label, "Eggs")
+
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+        audio.finish()
+        XCTAssertEqual(audio.playedLabels, ["Tea", "Eggs", "Toast"])
+    }
+
+    @MainActor
     func testTimersThatFinishTogetherEachSayTheNameTheyWereAskedToSay() {
         let directory = temporaryDirectory()
         let clock = TestClock(Date(timeIntervalSinceReferenceDate: 7_000))
