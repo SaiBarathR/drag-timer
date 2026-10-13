@@ -9,6 +9,7 @@ final class StatusItemController: NSObject {
     private let onPopoverAnchorChanged: (NSView, NSRect) -> Void
     private let onOpenSettings: () -> Void
     private let onOpenHistory: () -> Void
+    private let onOpenWelcome: () -> Void
     private let gestureController: DragGestureController
     private var statusView: StatusItemCaptureView?
     private var timersCancellable: AnyCancellable?
@@ -26,7 +27,8 @@ final class StatusItemController: NSObject {
         onPopoverRequested: @escaping (NSView, NSRect) -> Void,
         onPopoverAnchorChanged: @escaping (NSView, NSRect) -> Void = { _, _ in },
         onOpenSettings: @escaping () -> Void = {},
-        onOpenHistory: @escaping () -> Void = {}
+        onOpenHistory: @escaping () -> Void = {},
+        onOpenWelcome: @escaping () -> Void = {}
     ) {
         statusItem = NSStatusBar.system.statusItem(withLength: StatusItemGeometry.collapsedWidth)
         self.timerEngine = timerEngine
@@ -35,6 +37,7 @@ final class StatusItemController: NSObject {
         self.onPopoverAnchorChanged = onPopoverAnchorChanged
         self.onOpenSettings = onOpenSettings
         self.onOpenHistory = onOpenHistory
+        self.onOpenWelcome = onOpenWelcome
         gestureController = DragGestureController(
             timerEngine: timerEngine,
             settings: settings,
@@ -318,6 +321,7 @@ final class StatusItemController: NSObject {
 
     @objc private func openSettings() { onOpenSettings() }
     @objc private func openHistory() { onOpenHistory() }
+    @objc private func openWelcome() { onOpenWelcome() }
 
     private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
@@ -328,6 +332,10 @@ final class StatusItemController: NSObject {
         ] {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
+        menu.addItem(.separator())
+        // Where a Help menu's item would be, in an app with no menu bar of
+        // its own. The guide opens by itself only once.
+        menu.addItem(withTitle: "Welcome Guide", action: #selector(openWelcome), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(
             withTitle: "Quit Drag Timer",

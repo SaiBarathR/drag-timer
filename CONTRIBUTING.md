@@ -41,7 +41,7 @@ Sources/DragTimer/
 ├── Physics/        Drag distance and velocity to duration mapping
 ├── Render/         Drag overlay window and display-link driver
 ├── StatusItem/     Menu-bar item, drag gesture, countdown presentation
-├── UI/             Popover, label prompt, settings window, appearance
+├── UI/             Popover, label prompt, settings window, welcome guide, appearance
 └── Updates/        Update checker
 Tests/DragTimerTests/   XCTest suite
 Scripts/                build-app.sh, validate-release.sh and its test

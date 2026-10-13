@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popoverController: TimerPopoverController?
     private var settingsWindowController: SettingsWindowController?
     private var historyWindowController: HistoryWindowController?
+    private lazy var welcome = WelcomePresenter(settings: settings) { [weak self] in
+        self?.statusItemController?.openPopover()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = EditShortcutsMenu.make()
@@ -29,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onOpenHistory: { [weak self] in
                 self?.showHistory()
+            },
+            onOpenWelcome: { [weak self] in
+                self?.welcome.show()
             },
             onPopoverVisibilityChanged: { [weak self] isVisible in
                 self?.statusItemController?.setPopoverVisible(isVisible)
@@ -46,16 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 popoverController?.anchorDidChange(in: view)
             },
             onOpenSettings: { [weak self] in self?.showSettings() },
-            onOpenHistory: { [weak self] in self?.showHistory() }
+            onOpenHistory: { [weak self] in self?.showHistory() },
+            onOpenWelcome: { [weak self] in self?.welcome.show() }
         )
 
-        if settings.isFirstLaunch {
-            // A new menu-bar icon explains nothing by itself; show the
-            // popover once so the drag hint and presets are seen.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                self?.statusItemController?.openPopover()
-            }
-        }
+        welcome.offerAtLaunch()
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await self?.updateChecker.checkIfNeeded()

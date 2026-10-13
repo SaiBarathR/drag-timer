@@ -94,6 +94,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private let updateChecker: UpdateChecker
     private let onOpenSettings: () -> Void
     private let onOpenHistory: () -> Void
+    private let onOpenWelcome: () -> Void
     private let onPopoverVisibilityChanged: (Bool) -> Void
     private let typedLength = TypedLengthEntry()
     private var hostingController: NSHostingController<TimerListView>!
@@ -123,6 +124,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         updateChecker: UpdateChecker? = nil,
         onOpenSettings: @escaping () -> Void,
         onOpenHistory: @escaping () -> Void = {},
+        onOpenWelcome: @escaping () -> Void = {},
         onPopoverVisibilityChanged: @escaping (Bool) -> Void = { _ in },
         animationsEnabled: Bool? = nil
     ) {
@@ -131,6 +133,7 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
         self.updateChecker = updateChecker ?? UpdateChecker(settings: settings)
         self.onOpenSettings = onOpenSettings
         self.onOpenHistory = onOpenHistory
+        self.onOpenWelcome = onOpenWelcome
         self.onPopoverVisibilityChanged = onPopoverVisibilityChanged
         super.init()
 
@@ -165,6 +168,9 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
             },
             onOpenHistory: { [weak self] in
                 self?.openHistory()
+            },
+            onOpenWelcome: { [weak self] in
+                self?.openWelcome()
             },
             // The popover stays open: the offer to undo is in it.
             onStopAll: { [weak self] in
@@ -238,6 +244,11 @@ final class TimerPopoverController: NSObject, NSPopoverDelegate {
     private func openHistory() {
         popover.performClose(nil)
         onOpenHistory()
+    }
+
+    private func openWelcome() {
+        popover.performClose(nil)
+        onOpenWelcome()
     }
 
     private func prepareForPresentation() {
@@ -371,6 +382,7 @@ private struct TimerListView: View {
     let maximumHeight: CGFloat
     let onOpenSettings: () -> Void
     let onOpenHistory: () -> Void
+    let onOpenWelcome: () -> Void
     let onStopAll: () -> Void
 
     @State private var timerBeingEdited: TimerRecord?
@@ -792,6 +804,8 @@ private struct TimerListView: View {
 
             // Quit is one step away rather than a bare icon beside Settings.
             Menu {
+                Button("Welcome Guide", action: onOpenWelcome)
+                Divider()
                 Button("Quit Drag Timer") { NSApp.terminate(nil) }
             } label: {
                 Image(systemName: "ellipsis.circle")
