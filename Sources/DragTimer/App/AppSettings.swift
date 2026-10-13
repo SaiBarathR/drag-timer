@@ -99,6 +99,7 @@ final class AppSettings: ObservableObject {
         var cachedUpdateTag: String?
         var cachedUpdateURLString: String?
         var dismissedReleaseTag: String?
+        var hasSeenWelcome: Bool?
     }
 
     private let defaults: UserDefaults
@@ -134,6 +135,10 @@ final class AppSettings: ObservableObject {
     @Published var cachedUpdateTag: String? { didSet { persist() } }
     @Published var cachedUpdateURLString: String? { didSet { persist() } }
     @Published var dismissedReleaseTag: String? { didSet { persist() } }
+    /// Whether the guide has been put up on this Mac. Settings saved before
+    /// there was a guide have not seen it either, so it opens once after an
+    /// update as it does on a first launch.
+    @Published var hasSeenWelcome: Bool { didSet { persist() } }
 
     static let defaultQuickStartMinutes = [5, 10, 15, 30, 60, 120, 180, 240]
     static let maximumDragDurationHoursRange = 4...24
@@ -196,6 +201,7 @@ final class AppSettings: ObservableObject {
         cachedUpdateTag = stored?.cachedUpdateTag
         cachedUpdateURLString = stored?.cachedUpdateURLString
         dismissedReleaseTag = stored?.dismissedReleaseTag
+        hasSeenWelcome = stored?.hasSeenWelcome ?? false
 
         if let presets = stored?.quickStartPresets {
             quickStartPresets = Self.sanitizePresets(presets)
@@ -428,7 +434,8 @@ final class AppSettings: ObservableObject {
             lastUpdateCheckAt: lastUpdateCheckAt,
             cachedUpdateTag: cachedUpdateTag,
             cachedUpdateURLString: cachedUpdateURLString,
-            dismissedReleaseTag: dismissedReleaseTag
+            dismissedReleaseTag: dismissedReleaseTag,
+            hasSeenWelcome: hasSeenWelcome
         )
         guard let data = try? JSONEncoder().encode(stored) else { return }
         defaults.set(data, forKey: storageKey)

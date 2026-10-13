@@ -11,6 +11,7 @@ It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime 
 ## What it does
 
 - Create a timer by dragging from the menu-bar clock icon. A click still opens the popover; this distinction holds on current macOS, including macOS 27.
+- Open with a guide the first time: six pages on the drag, Quick start, running and finished timers, the menu bar and Preferences, each with a picture of that part of the app, and a seventh listing the keys.
 - Choose whether the menu bar shows the nearest deadline, active count, a pinned timer, or a progress ring.
 - Start a timer by typing its length, down to seconds, or the time of day it should ring.
 - Create labeled, colored, reorderable Quick start presets with their own sound and notification behavior.
@@ -39,7 +40,7 @@ Releases include `Drag-Timer-<version>-macos-universal.zip` and `SHA256SUMS.txt`
 1. Download the ZIP and `SHA256SUMS.txt` from the [Releases](https://github.com/SaiBarathR/drag-timer/releases) page.
 2. Verify the checksum, then unzip the archive and move `Drag Timer.app` to Applications.
 3. Because releases are ad-hoc signed rather than notarized with a Developer ID, macOS will show a Gatekeeper warning on first launch. Control-click the app, choose **Open**, then confirm; alternatively use **Open Anyway** in System Settings → Privacy & Security.
-4. Drag from the menu-bar timer icon to create your first timer.
+4. The first launch opens a guide to the app. Shut it, then drag from the menu-bar timer icon to create your first timer.
 
 Verify the published SHA-256 checksum before opening a downloaded build:
 
@@ -49,6 +50,12 @@ shasum -a 256 -c SHA256SUMS.txt
 ```
 
 ## Use
+
+### The guide
+
+The first time Drag Timer is opened it puts up a guide in a window of its own: what the app is for, where each thing is, and every key and click it answers. An update from a version without the guide shows it once as well. It opens by itself only that once, and afterwards is **Welcome Guide** on the menu-bar icon's right-click menu and under **More** at the bottom of the popover.
+
+Return and → turn its pages, ← turns back, and Escape shuts it. The app goes on working behind it, so a timer can be dragged out with the page that describes the drag still on screen. On a first launch, shutting the guide opens the popover, which shows where in the menu bar the icon is.
 
 ### Create and manage timers
 
@@ -60,7 +67,7 @@ shasum -a 256 -c SHA256SUMS.txt
 - Open the `…` menu beside a timer to pin it to the menu bar or edit its label, identity, sound, loop behavior, notification, and snooze time.
 - Click a Quick start play button to begin a preset timer without dragging.
 - Click **Other length or time…** under Quick start to type a length such as `7`, `25m`, `90s`, `1m 30s`, `1h 30m` or `1:30` (hours and minutes), or a time of day such as `@3:30pm`, `at 15:30` or `until 4`, and start it with Return. The button names what it read. A time from 1 to 12 with no am or pm means the next time the clock reads it.
-- Right-click the menu-bar icon for Timer History, Settings and Quit.
+- Right-click the menu-bar icon for Timer History, Settings, the Welcome Guide and Quit.
 - Click a routine in the compact Routines strip to start every timer snapshot in that routine at once. The launched timers remain independently controllable.
 - Use the pause/play button beside a timer to pause or resume it. Reset and cancel are in the `…` menu.
 - To change how long a running timer has left, use **Add 1 min**, **Add N min** (its snooze length) or **Subtract 1 min** in the `…` menu; these leave its planned length alone, so Reset still returns to what was set. To set an exact time, choose **Edit timer** and type it into **Time left**: the timer has that long from now, and that becomes its planned length. A paused timer stays paused.
@@ -119,7 +126,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the project layout and contribution w
 
 ## Verify
 
-The XCTest suite covers whole-minute duration mapping, migration from v1.2.0 settings/timers, expiry resolution and crash recovery, bounded history, rich preset and routine snapshots, parallel routine launches, all menu-bar policies, update parsing/throttling, popover geometry, Stop all behavior, and audio priority.
+The XCTest suite covers whole-minute duration mapping, migration from v1.2.0 settings/timers, expiry resolution and crash recovery, bounded history, rich preset and routine snapshots, parallel routine launches, all menu-bar policies, update parsing/throttling, popover geometry, Stop all behavior, audio priority, and the Welcome Guide's pages, keys and window.
 
 ```sh
 swift build
@@ -160,7 +167,7 @@ The workflow also supports a manual dry run before tagging: provide the intended
 ## Architecture
 
 - AppKit owns status-item input, overlay windows, and app lifecycle.
-- SwiftUI provides the timer list, expiry card, History, editors, and tabbed Preferences interface.
+- SwiftUI provides the timer list, expiry card, History, editors, tabbed Preferences interface, and the Welcome Guide, whose pictures are drawn in SwiftUI rather than shipped as images.
 - Core Animation renders the drag line and duration overlay at display cadence.
 - `TimerEngine` schedules only the nearest deadline, batch-creates routine timers with one shared start time, and persists active timers, pending expiries, and idempotent terminal history as Codable JSON.
 - `AVAudioPlayer` plays the system sounds from `/System/Library/Sounds`. A looping sound shorter than 1.25 seconds, like the system beep, is repeated on a timer so it does not run together. `AVSpeechSynthesizer` says the timer's name after the sound has played once; a looping alert starts repeating only when the name has been said.

@@ -119,7 +119,7 @@ final class StatusItemControllerTests: XCTestCase {
     }
 
     @MainActor
-    func testContextMenuReachesTimersHistorySettingsAndQuit() {
+    func testContextMenuReachesTimersHistorySettingsGuideAndQuit() {
         _ = NSApplication.shared
         let fixture = makeFixture()
         defer { fixture.cleanup() }
@@ -129,24 +129,30 @@ final class StatusItemControllerTests: XCTestCase {
             settings: fixture.settings,
             onPopoverRequested: { _, _ in calls.append("timers") },
             onOpenSettings: { calls.append("settings") },
-            onOpenHistory: { calls.append("history") }
+            onOpenHistory: { calls.append("history") },
+            onOpenWelcome: { calls.append("guide") }
         )
 
         let menu = controller.contextMenuForTesting
         let items = menu.items.filter { !$0.isSeparatorItem }
 
-        XCTAssertEqual(items.map(\.title), ["Show Timers", "Timer History", "Settings…", "Quit Drag Timer"])
+        XCTAssertEqual(
+            items.map(\.title),
+            ["Show Timers", "Timer History", "Settings…", "Welcome Guide", "Quit Drag Timer"]
+        )
+        // The guide has a picture of this menu, drawn from a list of its own.
+        XCTAssertEqual(menu.items.map { $0.isSeparatorItem ? nil : $0.title }, WelcomeArt.clockMenu)
         for item in items.dropLast() {
             NSApp.sendAction(item.action!, to: item.target, from: item)
         }
-        XCTAssertEqual(calls, ["timers", "history", "settings"])
+        XCTAssertEqual(calls, ["timers", "history", "settings", "guide"])
 
         // Show Timers must not close a popover that is already open.
         controller.setPopoverVisible(true)
         NSApp.sendAction(items[0].action!, to: items[0].target, from: items[0])
-        XCTAssertEqual(calls, ["timers", "history", "settings"])
+        XCTAssertEqual(calls, ["timers", "history", "settings", "guide"])
         controller.showPopover()
-        XCTAssertEqual(calls, ["timers", "history", "settings", "timers"])
+        XCTAssertEqual(calls, ["timers", "history", "settings", "guide", "timers"])
 
         XCTAssertEqual(items.last?.action, #selector(NSApplication.terminate(_:)))
         XCTAssertTrue(items.last?.target === NSApp)

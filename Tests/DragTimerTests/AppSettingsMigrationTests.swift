@@ -36,6 +36,32 @@ final class AppSettingsMigrationTests: XCTestCase {
         XCTAssertFalse(AppSettings(defaults: defaults).isFirstLaunch)
     }
 
+    func testGuideIsUnseenUntilItHasBeenShownAndStaysSeen() {
+        let fixture = makeDefaults()
+        defer { fixture.cleanup() }
+
+        let firstLaunch = AppSettings(defaults: fixture.defaults)
+        XCTAssertFalse(firstLaunch.hasSeenWelcome)
+        firstLaunch.hasSeenWelcome = true
+
+        XCTAssertTrue(AppSettings(defaults: fixture.defaults).hasSeenWelcome)
+    }
+
+    func testSettingsSavedBeforeThereWasAGuideHaveNotSeenIt() throws {
+        let fixture = makeDefaults()
+        defer { fixture.cleanup() }
+        fixture.defaults.set(
+            try JSONSerialization.data(withJSONObject: ["hapticsEnabled": false]),
+            forKey: storageKey
+        )
+
+        let updated = AppSettings(defaults: fixture.defaults)
+
+        // An update is not a first launch, and still has the guide to show.
+        XCTAssertFalse(updated.isFirstLaunch)
+        XCTAssertFalse(updated.hasSeenWelcome)
+    }
+
     func testMissingAdditiveFieldsKeepSettingsBlobDecodable() throws {
         let fixture = makeDefaults()
         defer { fixture.cleanup() }

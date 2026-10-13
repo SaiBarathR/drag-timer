@@ -77,7 +77,7 @@ private struct SettingsView: View {
     }
 }
 
-private enum SettingsPane: String, CaseIterable, Identifiable {
+enum SettingsPane: String, CaseIterable, Identifiable {
     case general
     case presets
     case routines
