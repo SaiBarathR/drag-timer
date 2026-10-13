@@ -10,9 +10,11 @@ import SwiftUI
 final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let pager = WelcomePager()
     private let onClose: () -> Void
+    /// Between being put up and being shut.
+    private var isUp = false
 
     /// `onClose` is told when the guide is shut, by any of the ways there
-    /// are to shut it.
+    /// are to shut it, once for each time it was put up.
     init(onClose: @escaping () -> Void = {}) {
         self.onClose = onClose
         let size = NSSize(
@@ -59,6 +61,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
 
     /// Puts the guide up, or brings it forward at the page it is on.
     func show() {
+        isUp = true
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
@@ -69,6 +72,10 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        // A window that is already shut can be closed again, and that is not
+        // the guide being shut.
+        guard isUp else { return }
+        isUp = false
         onClose()
     }
 
@@ -113,6 +120,7 @@ private final class WelcomeWindow: NSWindow {
 final class WelcomePresenter {
     private let settings: AppSettings
     private let showTimers: () -> Void
+    /// The guide's window, for as long as the guide is up.
     private var windowController: WelcomeWindowController?
     /// Set while the guide a first launch opened with is up.
     private var showsTimersWhenShut = false
@@ -136,7 +144,7 @@ final class WelcomePresenter {
     /// Puts the guide up at its first page, or brings it forward as it is
     /// if it is up already.
     func show() {
-        if windowController?.window?.isVisible != true {
+        if windowController == nil {
             windowController = WelcomeWindowController { [weak self] in
                 self?.guideDidClose()
             }
@@ -151,15 +159,16 @@ final class WelcomePresenter {
     }
 
     private func guideDidClose() {
+        // Most people see the guide once. Its window and seven pages of
+        // drawings are not kept for the weeks the app then runs.
+        let shut = windowController
+        windowController = nil
         let showsTimers = showsTimersWhenShut
         showsTimersWhenShut = false
-        // Once the window has gone, not while it is going.
-        DispatchQueue.main.async { [weak self, showTimers] in
-            // Most people see the guide once. Its window and seven pages of
-            // drawings are not kept for the weeks the app then runs.
-            if let self, self.windowController?.window?.isVisible != true {
-                self.windowController = nil
-            }
+        // This is called from inside the window's own closing. The window is
+        // let go, and the popover opened, once it has gone.
+        DispatchQueue.main.async { [showTimers] in
+            withExtendedLifetime(shut) {}
             if showsTimers { showTimers() }
         }
     }

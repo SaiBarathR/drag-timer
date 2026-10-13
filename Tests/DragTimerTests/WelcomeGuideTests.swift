@@ -231,9 +231,12 @@ final class WelcomeGuideTests: XCTestCase {
         controller.pageForTesting = .keys
         XCTAssertTrue(pressReturn(in: controller) { closes >= 3 })
 
-        // And a key that arrives once it has shut is not a second shutting.
+        // A key that arrives once it has shut is not a second shutting, and
+        // nor is closing a window that is shut already.
         press(.escape, in: controller)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        controller.close()
+        controller.window?.performClose(nil)
+        settle()
         XCTAssertEqual(closes, 3)
     }
 
@@ -273,14 +276,14 @@ final class WelcomeGuideTests: XCTestCase {
         presenter.offerAtLaunch()
         XCTAssertEqual(timersShown, 0)
         presenter.windowControllerForTesting?.close()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        settle()
         XCTAssertEqual(timersShown, 1)
 
         // Opened again from a menu, it is only a guide.
         presenter.show()
         XCTAssertEqual(presenter.windowControllerForTesting?.window?.isVisible, true)
         presenter.windowControllerForTesting?.close()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        settle()
         XCTAssertEqual(timersShown, 1)
     }
 
@@ -304,7 +307,7 @@ final class WelcomeGuideTests: XCTestCase {
         XCTAssertEqual(presenter.windowControllerForTesting?.window?.isVisible, true)
 
         presenter.windowControllerForTesting?.close()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        settle()
         XCTAssertEqual(timersShown, 0)
     }
 
@@ -351,14 +354,14 @@ final class WelcomeGuideTests: XCTestCase {
             presenter.show()
             presenter.windowControllerForTesting?.pageForTesting = .finished
             presenter.windowControllerForTesting?.close()
-            if settles { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+            if settles { settle() }
 
             presenter.show()
 
             XCTAssertEqual(presenter.windowControllerForTesting?.window?.isVisible, true)
             XCTAssertEqual(presenter.windowControllerForTesting?.pageForTesting, WelcomePage.allCases.first)
             presenter.windowControllerForTesting?.close()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            settle()
         }
     }
 
@@ -375,12 +378,30 @@ final class WelcomeGuideTests: XCTestCase {
             window = presenter.windowControllerForTesting?.window
             XCTAssertNotNil(window)
             presenter.windowControllerForTesting?.close()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         }
 
         XCTAssertNil(presenter.windowControllerForTesting)
-        // Nor held by anything else: the window and its pages are gone.
+        // Nor held by anything else: the window and its pages go too, once
+        // the closing is over.
+        let deadline = Date().addingTimeInterval(10)
+        while window != nil, Date() < deadline {
+            autoreleasepool { settle() }
+        }
         XCTAssertNil(window)
+    }
+
+    /// Lets what a shutting guide put off until its window had gone be done.
+    /// Waited for, not timed: the main queue runs what it is given in order,
+    /// so once this has run, that has.
+    @MainActor
+    private func settle() {
+        var settled = false
+        DispatchQueue.main.async { settled = true }
+        let deadline = Date().addingTimeInterval(10)
+        while !settled, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(settled)
     }
 
     private func makeDefaults() -> (defaults: UserDefaults, cleanup: () -> Void) {
