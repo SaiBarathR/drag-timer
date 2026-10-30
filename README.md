@@ -8,6 +8,11 @@ Drag Timer is a native macOS menu-bar timer built around a single gesture: pull 
 
 It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime is verified. The bundle also contains a native `x86_64` slice, but physical Intel runtime testing remains unavailable, so Intel support is provisional rather than verified. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
 
+https://github.com/user-attachments/assets/5725c26b-774c-49da-b4cc-1056851e38cf
+
+<sub>Music: "Blipotron" by Kevin MacLeod (incompetech.com), licensed under
+[Creative Commons: By Attribution 4.0](http://creativecommons.org/licenses/by/4.0/).</sub>
+
 ## What it does
 
 - Create a timer by dragging from the menu-bar clock icon. A click still opens the popover; this distinction holds on current macOS, including macOS 27.
