@@ -1,0 +1,481 @@
+---
+import Base from '../layouts/Base.astro';
+import DragDemo from '../components/DragDemo.astro';
+import Video from '../components/Video.astro';
+import DownloadCTA from '../components/DownloadCTA.astro';
+import { icon } from '../lib/icons';
+import { APP_VERSION, MIN_MACOS, SITE, url } from '../lib/site';
+
+// The drag ruler up to the default 4-hour maximum: DurationLadder and SnapGrid in Sources/DragTimer/Physics.
+const rungs: number[] = [];
+for (let m = 1; m <= 15; m++) rungs.push(m);
+for (let m = 20; m <= 60; m += 5) rungs.push(m);
+for (let m = 75; m <= 240; m += 15) rungs.push(m);
+const snaps = new Set([1, 5, 15, 30, 60, 90, 120, 180, 240]);
+const tickLabels: Record<number, string> = { 1: '1m', 5: '5m', 15: '15m', 30: '30m', 60: '1h', 120: '2h', 180: '3h', 240: '4h' };
+
+const gesture = [
+  { icon: 'ruler', title: 'A ruler that stays put', text: 'Every step costs the same distance, so 5 minutes, 15 minutes and 1 hour are always in the same place. Raising the maximum only adds length at the far end.' },
+  { icon: 'magnet', title: 'Snap points', text: 'Near useful lengths such as 1, 5, 15 and 30 minutes the line catches and turns mint. Let go there and that is the length you get.' },
+  { icon: 'vibrate', title: 'Detents you can feel', text: 'On a trackpad each step is a tick, with a stronger one when a snap engages. Both can be turned off.' },
+  { icon: 'gauge', title: 'Precise, Snappy or Throwable', text: 'Precise and Snappy start exactly the length shown when you let go. Throwable adds momentum while the pointer is moving, then settles when you pause.' },
+  { icon: 'monitor', title: 'Across displays', text: 'The drag carries on across built-in and external displays, including mixed Retina and non-Retina setups.' },
+  { icon: 'undo-2', title: 'Back out of a drag', text: 'Bring the pointer back onto the icon, where the label reads Cancel, and let go. Or press Esc while still holding. Neither starts a timer.' },
+];
+
+const typed = ['7', '25m', '90s', '1m 30s', '1h 30m', '1:30', '@3:30pm', 'at 15:30', 'until 4'];
+
+const running = [
+  { icon: 'pause', title: 'Pause and resume', text: 'The button beside each timer holds it where it is. Reset and cancel are in the … menu.' },
+  { icon: 'plus', title: 'Add or subtract time', text: 'Add 1 min, Add N min (its snooze length) or Subtract 1 min move the end and leave the planned length alone, so Reset still returns to what was set.' },
+  { icon: 'pencil', title: 'Set a new time left', text: 'Edit timer takes an exact Time left. The timer has that long from now, and that becomes its planned length.' },
+  { icon: 'check', title: 'Mark done early', text: 'The checkmark finishes a running timer. It goes into history as completed and never rings.' },
+  { icon: 'rotate-ccw', title: 'Stop all, then Undo', text: 'Stop all cancels every active timer. For ten seconds after it, or after a cancel or Mark done, Undo or ⌘Z puts the timers back with the end times they had.' },
+];
+
+const ending = [
+  { icon: 'clock', title: 'The clock turns red and counts up', text: 'It shows how long ago the timer ended, as +2:15, ahead of any running countdown, until you answer it.' },
+  { icon: 'alarm-clock-check', title: 'Snooze, Restart or Mark done', text: 'Finished timers are answered one at a time. Answering one never loses another that ended at the same moment.' },
+  { icon: 'volume-x', title: 'Silence it first', text: 'The speaker button stops the sound and leaves the card waiting for its answer.' },
+  { icon: 'bell', title: 'A notification with sound', text: 'macOS shows a notification when a timer finishes, with the same three choices.' },
+  { icon: 'speech', title: 'Its name, said aloud', text: 'Optionally the timer’s name is spoken after the sound has played once.' },
+];
+
+const modes = [
+  { name: 'Deadline', text: 'The countdown of the timer that ends soonest, in that timer’s color and symbol.' },
+  { name: 'Count', text: 'How many timers are running. The zero can be hidden.' },
+  { name: 'Pinned', text: 'One timer you chose with Pin to menu bar in its … menu.' },
+  { name: 'Ring', text: 'A ring that fills as the time goes, with no digits.' },
+];
+
+const yours = [
+  { icon: 'volume-2', title: '14 system sounds, or the beep', text: 'Any of 14 macOS system sounds or the system beep. A sound plays once when you pick it.' },
+  { icon: 'sliders-horizontal', title: 'Settings per timer', text: 'Volume, loop until stopped, notification and snooze length belong to each timer and each preset.' },
+  { icon: 'palette', title: 'A color and a symbol', text: 'Give a timer an identity. The menu-bar clock takes on the color and symbol of the timer it shows.' },
+  { icon: 'type', title: 'Countdown you can read', text: 'Adjust countdown size and contrast, and when a timer that is nearly up turns urgent. Urgency is never shown by color alone.' },
+  { icon: 'move-diagonal', title: 'Drag up to 24 hours', text: 'The longest drag is 4 hours to begin with and can be raised as far as 24.' },
+  { icon: 'power', title: 'Launch at login', text: 'Optionally start Drag Timer when you log in.' },
+];
+
+const reliable = [
+  { icon: 'moon', title: 'Sleep and wake', text: 'A timer is stored as the moment it ends, not as a count of seconds, so closing the lid does not stretch it.' },
+  { icon: 'rotate-ccw', title: 'Quit and relaunch', text: 'Active timers and unanswered finished ones are saved on your Mac and are there when the app opens again.' },
+  { icon: 'bed', title: 'Timers missed while asleep', text: 'Choose whether a timer that ended while the Mac slept fires when it wakes.' },
+];
+
+const privacy = [
+  { icon: 'user-x', title: 'No account', text: 'There is nothing to sign up for, and no telemetry SDK in the app.' },
+  { icon: 'hard-drive', title: 'Timers stay on your Mac', text: 'Active timers, unanswered expiries and history are local files. There is no cloud history.', code: '~/Library/Application Support/DragTimer/' },
+  { icon: 'refresh-cw', title: 'Update checks read, never send', text: 'When update checks are on, the app requests only public release metadata from GitHub. It never uploads timer data.' },
+  { icon: 'package', title: 'It never updates itself', text: 'A newer release opens its GitHub page for you to install by hand. Drag Timer does not download an installer.' },
+];
+---
+<Base path="">
+  <section class="hero">
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <span class="eyebrow">Free and open source · macOS {MIN_MACOS}+</span>
+        <h1>Pull a timer out of your <span class="hl">menu bar.</span></h1>
+        <p class="hero-lead">
+          Drag Timer is a native menu-bar timer for macOS built around one gesture. Press the clock, drag away from it,
+          and let go. How far you drag is how long it runs.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-lg" href={SITE.latestRelease} data-download>
+            <span set:html={icon('download', 18)} /> Download for Mac
+          </a>
+          <a class="btn btn-secondary btn-lg" href={url('docs/')}>Read the docs</a>
+        </div>
+        <p class="hero-meta">
+          <span data-download-version>Version {APP_VERSION} · universal</span>
+          <span aria-hidden="true">·</span>
+          <a href={url('download/')}>Install steps</a>
+        </p>
+      </div>
+      <div class="hero-demo">
+        <DragDemo />
+        <p class="hero-demo-hint">Try it. This is a picture of the gesture: in the app, the clock is in your real menu bar.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-tight" aria-labelledby="video-title">
+    <div class="container">
+      <div class="section-head center">
+        <span class="eyebrow">See it work</span>
+        <h2 class="section-title" id="video-title">Half a minute with Drag Timer</h2>
+      </div>
+      <Video title="Drag Timer promo video" />
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="gesture-title">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">The gesture</span>
+        <h2 class="section-title" id="gesture-title">Farther is longer</h2>
+        <p class="section-lead">
+          The floating label steps through a fixed ladder of useful lengths and shows the exact time the timer will ring.
+          A click, with no drag, still opens the timer list.
+        </p>
+      </div>
+
+      <figure class="ruler">
+        <div class="ruler-scroll">
+          <ol class="ruler-ticks" role="list" aria-label="The steps of the drag ruler, from 1 minute to 4 hours">
+            {rungs.map((m) => (
+              <li class={snaps.has(m) ? 'snap' : undefined}>
+                <span class="tick" aria-hidden="true"></span>
+                {tickLabels[m] ? <span class={m === 30 ? 'tick-label wide-only' : 'tick-label'}>{tickLabels[m]}</span> : <span class="visually-hidden">{m} minutes</span>}
+              </li>
+            ))}
+          </ol>
+          <div class="ruler-bands" aria-hidden="true">
+            <span style="grid-column: 1 / 15">every minute</span>
+            <span style="grid-column: 15 / 24">every 5 min</span>
+            <span style="grid-column: 24 / 37">every 15 min</span>
+          </div>
+        </div>
+        <figcaption>
+          Every minute to 15 minutes, every 5 minutes to 1 hour, every 15 minutes to 4 hours. Raise the maximum in
+          Preferences and it carries on every 30 minutes, as far as 24 hours. The taller marks are snap points.
+        </figcaption>
+      </figure>
+
+      <ul class="feature-grid" role="list">
+        {gesture.map((a) => (
+          <li class="feature card">
+            <span class="feature-icon" set:html={icon(a.icon, 20)} />
+            <h3>{a.title}</h3>
+            <p>{a.text}</p>
+          </li>
+        ))}
+      </ul>
+
+      <div class="split name-split">
+        <figure class="shot">
+          <img class="window" style="width:390px" src={url('images/name-prompt.webp')} width="780" height="528" alt="The Name this timer prompt: Running, rings at 1:28 PM, 25:00 left, with Deep work typed in and the buttons Discard Timer and Save Name" loading="lazy" decoding="async" />
+        </figure>
+        <div>
+          <h3 class="split-title">Let go, then name it</h3>
+          <p class="split-text">
+            The timer is already running when the prompt appears. <kbd>Return</kbd> saves the name,
+            <kbd>Shift</kbd>-<kbd>Return</kbd> adds a line, <kbd>Esc</kbd> keeps the timer under its default name, and
+            <strong>Discard Timer</strong> removes it. If you would rather not be asked, turn the prompt off in Preferences.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt" aria-labelledby="quick-title">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Quick start</span>
+        <h2 class="section-title" id="quick-title">Or click, and start</h2>
+        <p class="section-lead">Click the clock and a panel opens under it. The lengths you use most are at the top.</p>
+        <dl class="points">
+          <div>
+            <dt>Presets</dt>
+            <dd>Labeled, colored, reorderable buttons that start a timer at once, each with its own sound and notification behavior.</dd>
+          </div>
+          <div>
+            <dt>Routines</dt>
+            <dd>Save a named set such as Pomodoro or Morning routine and start all of its timers together. Each stays independently controllable.</dd>
+          </div>
+          <div>
+            <dt>Type a length, or a time of day</dt>
+            <dd>
+              <strong>Other length or time…</strong> reads a length down to seconds, or the time it should ring. The button names
+              what it read, and Return starts it.
+              <ul class="chips" role="list" aria-label="Examples of what can be typed">
+                {typed.map((t) => <li><code>{t}</code></li>)}
+              </ul>
+            </dd>
+          </div>
+        </dl>
+      </div>
+      <figure class="shot">
+        <img style="width:346px" src={url('images/popover-typed.webp')} width="692" height="906" alt="The timer panel: eight Quick start presets, @3:30pm typed into the length field with a Ring at 3:30 PM button beside it, the Pomodoro and Morning routine routines, and three running timers" loading="lazy" decoding="async" />
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="running-title">
+    <div class="container split reverse">
+      <figure class="shot">
+        <img style="width:346px" src={url('images/popover-running.webp')} width="692" height="896" alt="Three running timers, Tea, Deep work and Laundry, each with a checkmark, a pause button and a … menu, above Stop all and the History, Preferences and More buttons" loading="lazy" decoding="async" />
+      </figure>
+      <div>
+        <span class="eyebrow">Running timers</span>
+        <h2 class="section-title" id="running-title">Pause, change, stop</h2>
+        <p class="section-lead">Each timer has a row in the panel, counting down. The buttons on the row are the ones wanted most. Everything else is under the … menu.</p>
+        <ul class="icon-list" role="list">
+          {running.map((r) => (
+            <li>
+              <span class="list-icon" set:html={icon(r.icon, 18)} />
+              <div><h3>{r.title}</h3><p>{r.text}</p></div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt" aria-labelledby="ends-title">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">When a timer ends</span>
+        <h2 class="section-title" id="ends-title">It waits for an answer</h2>
+        <p class="section-lead">A finished timer plays its sound and stays in the menu bar until you answer it. One you missed is still there when you look.</p>
+        <ul class="icon-list" role="list">
+          {ending.map((r) => (
+            <li>
+              <span class="list-icon" set:html={icon(r.icon, 18)} />
+              <div><h3>{r.title}</h3><p>{r.text}</p></div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <figure class="shot">
+        <img style="width:346px" src={url('images/popover-finished.webp')} width="692" height="1058" alt="The timer panel with a red card reading Pasta finished, Just now, with Snooze 5 min, Restart and Mark done buttons and a speaker button, above three timers still running" loading="lazy" decoding="async" />
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="menubar-title">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">In the menu bar</span>
+        <h2 class="section-title" id="menubar-title">Choose what the clock shows</h2>
+        <p class="section-lead">The clock is all there is to see of the app, and it has no Dock icon. A right-click on it reaches Timer History, Settings, the Welcome Guide and Quit.</p>
+      </div>
+      <div class="states" role="img" aria-label="The menu-bar clock in three states: idle, a plain clock; running, an orange ring with a cup and 4:02; finished, a solid red circle with +0:05">
+        <div><span class="state-bar"><img src={url('images/status-idle.webp')} width="32" height="24" alt="" loading="lazy" decoding="async" /></span><span class="state-name">Idle</span></div>
+        <div><span class="state-bar"><img src={url('images/status-tea-10.webp')} width="62" height="24" alt="" loading="lazy" decoding="async" /></span><span class="state-name">Running</span></div>
+        <div><span class="state-bar"><img src={url('images/status-finished-5.webp')} width="71" height="24" alt="" loading="lazy" decoding="async" /></span><span class="state-name">Finished</span></div>
+      </div>
+      <ul class="mode-grid" role="list">
+        {modes.map((m) => (
+          <li class="mode card">
+            <h3>{m.name}</h3>
+            <p>{m.text}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="section alt" aria-labelledby="yours-title">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Preferences</span>
+        <h2 class="section-title" id="yours-title">Make it yours</h2>
+        <p class="section-lead">Set the defaults every new timer starts with, then change any of them for one timer or one preset.</p>
+      </div>
+      <div class="yours">
+        <figure class="shot">
+          <img class="window" style="width:560px" src={url('images/settings-presets.webp')} width="1440" height="1256" alt="Drag Timer Preferences, Presets tab: eight Quick start presets, Tea, 10 min, Stretch, Focus and 1 to 4 hr, each with a colored symbol and its sound, in a list that can be reordered" loading="lazy" decoding="async" />
+        </figure>
+        <ul class="yours-list" role="list">
+          {yours.map((r) => (
+            <li>
+              <span class="list-icon" set:html={icon(r.icon, 18)} />
+              <div><h3>{r.title}</h3><p>{r.text}</p></div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p class="more-link"><a href={url('docs/preferences/')}>Every tab of Preferences, explained</a></p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="more-title">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">History and the guide</span>
+        <h2 class="section-title" id="more-title">What you ran, and how it all works</h2>
+      </div>
+      <div class="pair">
+        <article class="pair-item">
+          <figure class="shot">
+            <img class="window" src={url('images/history.webp')} width="1244" height="1100" alt="Timer History: counts of completed, cancelled and snoozed timers and the average planned length, a filter, and a list of past timers each with an Again button" loading="lazy" decoding="async" />
+          </figure>
+          <h3>History, kept on your Mac</h3>
+          <p>
+            Completed and cancelled timers from the last 90 days, up to 500 of them, with a few completion insights.
+            Filter the list, clear it, or start any timer again.
+          </p>
+        </article>
+        <article class="pair-item">
+          <figure class="shot">
+            <img class="window" src={url('images/guide-pull.webp')} width="1800" height="1240" alt="The Welcome Guide, page 1 of 7, Pull a timer out of the menu bar: a drawing of the drag with four numbered tips beneath it" loading="lazy" decoding="async" />
+          </figure>
+          <h3>A guide on first launch <span class="new">New in 1.7</span></h3>
+          <p>
+            Six pages on the drag, Quick start, running and finished timers, the menu bar and Preferences, each with a
+            picture of that part of the app, and a seventh listing the keys. It opens by itself once and stays on the
+            clock’s right-click menu.
+          </p>
+        </article>
+      </div>
+
+      <ul class="feature-grid reliable" role="list" aria-label="Keeping time">
+        {reliable.map((a) => (
+          <li class="feature card">
+            <span class="feature-icon" set:html={icon(a.icon, 20)} />
+            <h3>{a.title}</h3>
+            <p>{a.text}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="section alt" aria-labelledby="privacy-title">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Privacy</span>
+        <h2 class="section-title" id="privacy-title">Your time is your business</h2>
+        <p class="section-lead">Drag Timer needs no account and keeps what it knows on the Mac it runs on.</p>
+      </div>
+      <ul class="safety-grid" role="list">
+        {privacy.map((s) => (
+          <li class="safety card">
+            <span class="feature-icon" set:html={icon(s.icon, 20)} />
+            <h3>{s.title}</h3>
+            <p>{s.text}</p>
+            {s.code && <p class="path"><code>{s.code}</code></p>}
+          </li>
+        ))}
+      </ul>
+      <p class="safety-more">
+        Drag Timer is open source under the MIT License.
+        <a href={SITE.repo}>Read the code on GitHub</a>
+      </p>
+    </div>
+  </section>
+
+  <DownloadCTA />
+</Base>
+
+<style>
+  .hero { padding: 72px 0 56px; position: relative; overflow: hidden; }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; }
+  .hero h1 { font-size: clamp(40px, 5.6vw, 62px); font-weight: 800; letter-spacing: -0.035em; line-height: 1.06; }
+  /* "menu bar." is underlined with the coral cord from the icon */
+  .hl { text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 0.09em; text-underline-offset: 0.14em; text-decoration-skip-ink: none; white-space: nowrap; }
+  .hero-lead { margin-top: 22px; font-size: 19px; line-height: 1.6; color: var(--text-2); max-width: 540px; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .hero-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 16px; font-size: 14.5px; color: var(--text-3); }
+  .hero-demo-hint { margin: 16px auto 0; max-width: 440px; text-align: center; font-size: 14px; color: var(--text-3); }
+  @media (max-width: 920px) {
+    .hero { padding: 48px 0 32px; }
+    .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 44px; }
+    .hero-copy { text-align: center; }
+    .hero-lead { margin-left: auto; margin-right: auto; }
+    .hero-actions, .hero-meta { justify-content: center; }
+  }
+  @media (max-width: 480px) {
+    .hero-actions .btn { width: 100%; }
+  }
+
+  .alt { background: var(--bg-soft); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+  /* the drag ruler */
+  .ruler { margin: 0 0 36px; padding: 30px 30px 22px; border-radius: 18px; background: var(--stage); border: 1px solid var(--stage-edge); color: #f4f2ec; }
+  .ruler-scroll { min-width: 0; }
+  .ruler-ticks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(36, minmax(0, 1fr)); align-items: end; height: 62px; border-bottom: 2px solid rgb(240 235 219 / 0.3); }
+  .ruler-ticks li { position: relative; display: flex; justify-content: center; align-items: flex-end; height: 100%; }
+  .tick { display: block; width: 2px; height: 12px; border-radius: 1px 1px 0 0; background: rgb(240 235 219 / 0.45); }
+  .snap .tick { height: 26px; width: 3px; background: #f46f62; }
+  .tick-label { position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); font: 650 13px/1 var(--font); color: #f4f2ec; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* shifted half a step so each band starts under the mark it starts at */
+  .ruler-bands { display: grid; grid-template-columns: repeat(36, minmax(0, 1fr)); margin-top: 10px; transform: translateX(calc(100% / 72)); }
+  .ruler-bands span { font-size: 12.5px; line-height: 1.3; color: #b9c0d6; padding: 6px 4px 0; border-left: 1px solid rgb(240 235 219 / 0.25); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ruler figcaption { margin-top: 18px; font-size: 14.5px; line-height: 1.6; color: #c5cbdd; max-width: 760px; }
+  @media (max-width: 640px) {
+    .ruler { padding: 22px 14px 18px; }
+    .tick-label { font-size: 11px; }
+    .tick-label.wide-only { display: none; }
+    .ruler-bands span { font-size: 11px; padding-left: 3px; }
+    .snap .tick { width: 2px; }
+  }
+
+  .feature-grid, .safety-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+  .feature-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .safety-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 900px) { .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .feature-grid, .safety-grid { grid-template-columns: minmax(0, 1fr); } }
+  .feature, .safety { padding: 22px 22px 24px; }
+  .feature h3, .safety h3 { font-size: 17px; font-weight: 680; margin-top: 14px; }
+  .feature p, .safety p { margin-top: 6px; color: var(--text-2); font-size: 15px; line-height: 1.6; }
+  .feature-icon {
+    display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 11px;
+    background: var(--navy); color: var(--cream); box-shadow: var(--shadow-sm);
+  }
+  .feature-icon :global(svg) { width: 20px; height: 20px; display: block; }
+  .safety .path { margin-top: 12px; }
+  .safety code { font-size: 13px; padding: 0.2em 0.5em; border-radius: 6px; background: var(--bg-soft); border: 1px solid var(--border); overflow-wrap: anywhere; }
+  .safety-more { margin-top: 22px; color: var(--text-2); font-size: 15px; }
+  .reliable { margin-top: 56px; }
+
+  /* text beside a screenshot */
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: 56px; align-items: center; }
+  .split.reverse { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr); }
+  .name-split { margin-top: 56px; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr); }
+  .split-title { font-size: 24px; font-weight: 720; letter-spacing: -0.02em; }
+  .split-text { margin-top: 12px; color: var(--text-2); font-size: 16.5px; line-height: 1.7; max-width: 520px; }
+  @media (max-width: 900px) {
+    .split, .split.reverse, .name-split { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+    .split.reverse > .shot { order: 2; }
+    .name-split { margin-top: 40px; }
+  }
+
+  .points { margin: 28px 0 0; display: grid; gap: 20px; }
+  .points dt { font-weight: 680; font-size: 17px; color: var(--text); }
+  .points dd { margin: 4px 0 0; color: var(--text-2); font-size: 15.5px; line-height: 1.6; max-width: 540px; }
+  .points dd strong { color: var(--text); font-weight: 620; }
+  .chips { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chips code { display: inline-block; padding: 4px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 13.5px; color: var(--text); white-space: nowrap; }
+
+  .icon-list, .yours-list { list-style: none; margin: 26px 0 0; padding: 0; }
+  .icon-list li, .yours-list li { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .icon-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .list-icon {
+    display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0;
+    border-radius: 9px; background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  }
+  .list-icon :global(svg) { width: 18px; height: 18px; display: block; }
+  .icon-list h3, .yours-list h3 { font-size: 15.5px; font-weight: 650; line-height: 1.4; }
+  .icon-list p, .yours-list p { margin-top: 2px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; }
+
+  /* the real menu-bar item, in its three states */
+  .states { display: flex; flex-wrap: wrap; gap: 14px 18px; margin-bottom: 28px; }
+  .states > div { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .state-bar { display: flex; align-items: center; justify-content: center; height: 44px; min-width: 104px; padding: 0 16px; border-radius: 12px; background: var(--stage); border: 1px solid var(--stage-edge); }
+  .state-bar img { display: block; height: 24px; width: auto; }
+  .state-name { font-size: 13.5px; color: var(--text-3); }
+  .mode-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+  @media (max-width: 900px) { .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 480px) { .mode-grid { grid-template-columns: minmax(0, 1fr); } }
+  .mode { padding: 20px 22px 22px; border-top: 3px solid var(--accent); }
+  .mode h3 { font-size: 17px; font-weight: 680; }
+  .mode p { margin-top: 6px; color: var(--text-2); font-size: 15px; line-height: 1.6; }
+
+  .yours { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
+  .yours-list { margin-top: 0; }
+  .yours-list li:first-child { padding-top: 0; }
+  .yours-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+  @media (max-width: 900px) { .yours { grid-template-columns: minmax(0, 1fr); gap: 32px; } }
+  .more-link { margin-top: 28px; font-size: 15.5px; }
+
+  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+  @media (max-width: 820px) { .pair { grid-template-columns: minmax(0, 1fr); gap: 40px; } }
+  .pair-item .shot { aspect-ratio: 16 / 11; padding: 24px; }
+  .pair-item .shot img { max-height: 100%; object-fit: contain; }
+  .pair-item h3 { margin-top: 20px; font-size: 20px; font-weight: 700; letter-spacing: -0.015em; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .pair-item p { margin-top: 8px; color: var(--text-2); font-size: 15.5px; line-height: 1.65; }
+  .new { font: 650 12.5px/1 var(--font); letter-spacing: 0; padding: 5px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); }
+  @media (max-width: 560px) { .pair-item .shot { padding: 14px; } }
+</style>

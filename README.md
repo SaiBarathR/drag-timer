@@ -6,6 +6,8 @@
 
 Drag Timer is a native macOS menu-bar timer built around a single gesture: pull time out of the menu-bar icon, release it, and the timer starts. Distance steps through a fixed ladder of useful durations, snap points align with trackpad feedback, and the optional Throwable feel adds release momentum.
 
+**Website:** [saibarathr.github.io/drag-timer](https://saibarathr.github.io/drag-timer/), with a [download page](https://saibarathr.github.io/drag-timer/download/), [docs](https://saibarathr.github.io/drag-timer/docs/) and the [changelog](https://saibarathr.github.io/drag-timer/changelog/).
+
 It is a universal Swift/AppKit app for macOS 14 or later. Apple Silicon runtime is verified. The bundle also contains a native `x86_64` slice, but physical Intel runtime testing remains unavailable, so Intel support is provisional rather than verified. It has no Dock icon. Active timers, unresolved expiries, and bounded history are stored locally in `~/Library/Application Support/DragTimer/`.
 
 https://github.com/user-attachments/assets/5725c26b-774c-49da-b4cc-1056851e38cf
