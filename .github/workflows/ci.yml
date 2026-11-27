@@ -10,12 +10,13 @@ permissions:
 
 jobs:
   build-and-test:
-    # macos-14 is the minimum supported system. The status-item gesture has a
-    # code path specific to newer releases, so the newest runner is tested too.
+    # The app supports macOS 14, but GitHub no longer offers a macos-14 runner,
+    # so macos-15 is the oldest system tested here. The status-item gesture has
+    # a code path specific to newer releases, so the newest runner is tested too.
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-latest]
+        os: [macos-15, macos-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
