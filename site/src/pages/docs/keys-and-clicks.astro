@@ -1,0 +1,7 @@
+---
+import Docs from '../../layouts/Docs.astro';
+import { Content, getHeadings, frontmatter } from '../../guides/keys-and-clicks.md';
+---
+<Docs title={frontmatter.title} description={frontmatter.description} path="docs/keys-and-clicks/" headings={getHeadings()} source="site/src/guides/keys-and-clicks.md">
+  <Content />
+</Docs>

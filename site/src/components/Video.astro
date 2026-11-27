@@ -1,0 +1,26 @@
+---
+// The promo video. Its music needs the credit below wherever the video is shown.
+import { url } from '../lib/site';
+
+interface Props { title: string; }
+const { title } = Astro.props;
+---
+<figure class="video">
+  <div class="video-frame">
+    <video controls preload="none" playsinline poster={url('media/promo-poster.webp')} width="1280" height="720" aria-label={title}>
+      <source src={url('media/promo.mp4')} type="video/mp4" />
+      <a href={url('media/promo.mp4')}>Download the video (MP4)</a>
+    </video>
+  </div>
+  <figcaption>
+    Music: “Blipotron” by Kevin MacLeod (<a href="https://incompetech.com" rel="noopener">incompetech.com</a>), licensed under
+    <a href="http://creativecommons.org/licenses/by/4.0/" rel="noopener license">Creative Commons: By Attribution 4.0</a>.
+  </figcaption>
+</figure>
+
+<style>
+  .video { margin: 0 auto; max-width: 960px; }
+  .video-frame { position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; border: 1px solid var(--stage-edge); background: #070b16; box-shadow: var(--shadow-lg); }
+  .video-frame video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #070b16; }
+  figcaption { margin-top: 12px; font-size: 14px; color: var(--text-3); text-align: center; }
+</style>

@@ -1,0 +1,219 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import { codeThemes } from '../lib/code-themes.mjs';
+import Steps from '../components/Steps.astro';
+import { icon } from '../lib/icons';
+import { APP_VERSION, MIN_MACOS, SITE, url, zipName } from '../lib/site';
+
+const themes = codeThemes;
+const verify = `cd ~/Downloads
+shasum -a 256 -c SHA256SUMS.txt`;
+const verifyOut = `${zipName()}: OK`;
+const xcode = `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`;
+const run = `git clone https://github.com/SaiBarathR/drag-timer.git
+cd drag-timer
+swift build
+swift run`;
+const build = `./Scripts/build-app.sh
+open "dist/Drag Timer.app"`;
+const inspect = `lipo -archs "dist/Drag Timer.app/Contents/MacOS/DragTimer"
+codesign --verify --deep --strict --verbose=2 "dist/Drag Timer.app"
+plutil -p "dist/Drag Timer.app/Contents/Info.plist"`;
+const uninstall = `rm -rf ~/Library/Application\\ Support/DragTimer   # timers and history
+defaults delete com.dragtimer.app                 # settings, presets and routines`;
+---
+<Base title="Download and install" path="download/" description="Download Drag Timer for macOS, check the archive, approve the first launch, and keep it up to date. Or build it from source.">
+  <section class="page-hero">
+    <div class="container">
+      <h1>Download Drag Timer</h1>
+      <p>One universal app for Macs running macOS {MIN_MACOS} or later. Free and open source under the MIT License.</p>
+    </div>
+  </section>
+
+  <div class="container">
+    <div class="dl-card card">
+      <div class="dl-main">
+        <a class="btn btn-primary btn-lg" href={SITE.latestRelease} data-download>
+          <span set:html={icon('download', 18)} /> Download for Mac
+        </a>
+        <div class="dl-info">
+          <p class="dl-file" data-download-name>{zipName()}</p>
+          <p class="dl-version" data-download-version>Version {APP_VERSION} · universal</p>
+        </div>
+      </div>
+      <div class="dl-links">
+        <a href={SITE.latestRelease} data-download-sums>SHA256SUMS.txt</a>
+        <a href={SITE.latestRelease} data-release-notes>Release notes</a>
+        <a href={SITE.releases}>All releases</a>
+      </div>
+    </div>
+
+    <div class="dl-layout">
+      <div class="dl-content">
+        <section aria-labelledby="install">
+          <h2 id="install">Install</h2>
+          <Steps>
+            <li>
+              <h3>Download the ZIP and its checksums</h3>
+              <p>
+                Each release carries <code>Drag-Timer-&lt;version&gt;-macos-universal.zip</code> and
+                <code>SHA256SUMS.txt</code>. Get both from the <a href={SITE.latestRelease} data-release-notes>latest release</a>
+                and keep them in the same folder.
+              </p>
+            </li>
+            <li>
+              <h3>Verify the checksum</h3>
+              <p>Before opening a downloaded build, check it against the published SHA-256:</p>
+              <Code code={verify} lang="sh" themes={themes} defaultColor={false} data-copy />
+              <p>It should print the archive's name followed by <code>OK</code>:</p>
+              <Code code={verifyOut} lang="text" themes={themes} defaultColor={false} />
+            </li>
+            <li>
+              <h3>Unzip it and move Drag Timer to Applications</h3>
+              <p>Double-click the ZIP, then drag <strong>Drag Timer.app</strong> into your <strong>Applications</strong> folder.</p>
+            </li>
+            <li>
+              <h3>Approve the first launch</h3>
+              <p>
+                Releases are ad-hoc signed rather than notarized with a Developer ID, so Gatekeeper blocks the first launch.
+                Open the app once and dismiss the warning, then open <strong>System Settings → Privacy &amp; Security</strong>,
+                scroll to <strong>Security</strong> and click <strong>Open Anyway</strong> next to the message about Drag Timer.
+              </p>
+              <div class="note">
+                <span set:html={icon('info', 20)} />
+                <p>On <strong>macOS 14 Sonoma</strong> you can instead Control-click the app, choose <strong>Open</strong>, then confirm. macOS 15 removed that shortcut for apps that aren't notarized. Either way, macOS asks once for each copy you install.</p>
+              </div>
+            </li>
+            <li>
+              <h3>Shut the guide, then pull your first timer</h3>
+              <p>
+                The first launch opens a guide to the app in a window of its own. Shut it and the timer panel opens, which
+                shows where in the menu bar the clock is. Press the clock, drag away from it, and let go.
+              </p>
+              <figure class="shot dl-shot">
+                <img class="window" src={url('images/guide-pull.webp')} width="1800" height="1240" alt="The Welcome Guide on its first page, Pull a timer out of the menu bar" loading="lazy" decoding="async" />
+              </figure>
+              <p>Drag Timer has no Dock icon. macOS asks whether to allow notifications when the first timer starts.</p>
+            </li>
+          </Steps>
+        </section>
+
+        <section aria-labelledby="updating">
+          <h2 id="updating">Updating</h2>
+          <p>
+            Drag Timer checks GitHub Releases quietly, at most once a day. When there is a newer version, the timer panel
+            shows <strong>Version … available</strong> with an <strong>Open</strong> button that takes you to the release
+            page. Download it there and replace the app in Applications, following the same steps as above.
+          </p>
+          <div class="note">
+            <span set:html={icon('info', 20)} />
+            <p>
+              <strong>Drag Timer never updates itself.</strong> It only opens GitHub Releases, and never downloads or
+              installs anything. The check requests public release metadata and sends no timer data. Turn it off, or run
+              one by hand, in Preferences → Updates.
+            </p>
+          </div>
+          <p>Timers, presets, routines, history and settings carry over. The <a href={url('changelog/')}>changelog</a> lists what changed in each release.</p>
+        </section>
+
+        <section aria-labelledby="source">
+          <h2 id="source">Build from source</h2>
+          <div class="note warn">
+            <span set:html={icon('triangle-alert', 20)} />
+            <p>
+              <strong>Full Xcode is required.</strong> Command Line Tools alone cannot build Drag Timer:
+              <code>swift build</code> fails with a compiler or SDK error that never mentions Xcode.
+            </p>
+          </div>
+          <p>Install Xcode 15 or later, open it once, then select it:</p>
+          <Code code={xcode} lang="sh" themes={themes} defaultColor={false} data-copy />
+          <p>
+            To leave <code>xcode-select</code> unchanged, prefix each command with
+            <code>DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer</code> instead. Then build and run:
+          </p>
+          <Code code={run} lang="sh" themes={themes} defaultColor={false} data-copy />
+          <p><code>swift run</code> starts the menu-bar app from the terminal. It has no Dock icon, so press Control-C to quit. To package a universal app bundle:</p>
+          <Code code={build} lang="sh" themes={themes} defaultColor={false} data-copy />
+          <p>
+            The script applies an ad-hoc code signature, which the app needs to launch at all on Apple silicon. It is not
+            signed with a Developer ID or notarized. To inspect what it built:
+          </p>
+          <Code code={inspect} lang="sh" themes={themes} defaultColor={false} data-copy />
+          <p>The project layout, tests and contribution workflow are in <a href={SITE.repo + '/blob/main/CONTRIBUTING.md'}>CONTRIBUTING.md</a>.</p>
+        </section>
+
+        <section aria-labelledby="uninstall">
+          <h2 id="uninstall">Uninstall</h2>
+          <ol class="plain-list">
+            <li>If <strong>Launch at login</strong> is on, turn it off in Preferences → General.</li>
+            <li>Right-click the menu-bar clock and choose <strong>Quit Drag Timer</strong>.</li>
+            <li>Move <strong>Drag Timer.app</strong> from Applications to the Trash.</li>
+            <li>Optionally remove what it stored:</li>
+          </ol>
+          <Code code={uninstall} lang="sh" themes={themes} defaultColor={false} data-copy />
+          <p>
+            Active timers, unanswered finished timers and history are JSON files in
+            <code>~/Library/Application Support/DragTimer/</code>. Settings, presets and routines are in the app's
+            preferences. Drag Timer writes no other files of its own.
+          </p>
+        </section>
+      </div>
+
+      <aside class="dl-aside" aria-label="Requirements">
+        <div class="card req-card">
+          <h2>Requirements</h2>
+          <ul role="list">
+            <li><span set:html={icon('laptop', 18)} /><div><strong>macOS {MIN_MACOS}</strong> or later</div></li>
+            <li><span set:html={icon('cpu', 18)} /><div><strong>Apple silicon</strong>, verified</div></li>
+            <li><span set:html={icon('circle-dashed', 18)} /><div><strong>Intel</strong>, provisional: the app contains a native <code>x86_64</code> slice, but no physical Intel Mac was available to test it</div></li>
+            <li><span set:html={icon('package', 18)} /><div>Ad-hoc signed, <strong>not notarized</strong></div></li>
+          </ul>
+        </div>
+        <div class="card req-card">
+          <h2>Next</h2>
+          <ul role="list" class="next-links">
+            <li><a href={url('docs/')}>Getting started</a></li>
+            <li><a href={url('docs/timers/')}>Working with timers</a></li>
+            <li><a href={url('docs/keys-and-clicks/')}>Keys and clicks</a></li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .dl-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px 32px; padding: 24px 28px; }
+  .dl-main { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 22px; min-width: 0; }
+  .dl-info { min-width: 0; }
+  .dl-file { font: 600 15px/1.4 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+  .dl-version { margin-top: 2px; font-size: 14px; color: var(--text-3); }
+  .dl-links { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 15px; }
+  @media (max-width: 560px) { .dl-card { padding: 20px; } .dl-main .btn { width: 100%; } }
+
+  .dl-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 56px; margin: 56px 0 24px; align-items: start; }
+  @media (max-width: 960px) { .dl-layout { grid-template-columns: minmax(0, 1fr); gap: 40px; } .dl-aside { order: -1; } }
+  .dl-content section + section { margin-top: 64px; }
+  .dl-content h2 { font-size: 28px; font-weight: 750; letter-spacing: -0.02em; margin-bottom: 24px; }
+  .dl-content > section > p { color: var(--text-2); }
+  .dl-content > section > p + p, .dl-content > section > * + .note, .dl-content > section > .note + p { margin-top: 16px; }
+  .dl-content > section > p + :global(pre), .dl-content > section > :global(pre) + p, .dl-content > section > :global(.code-block) + p,
+  .dl-content > section > p + :global(.code-block), .dl-content > section > ol + :global(.code-block), .dl-content > section > ol + :global(pre) { margin-top: 14px; }
+  .dl-content :global(:not(pre) > code), .req-card code { font-size: 0.88em; padding: 0.1em 0.36em; border-radius: 6px; background: var(--code-bg); border: 1px solid var(--border); overflow-wrap: anywhere; }
+  .dl-shot { margin-top: 16px; max-width: 560px; padding: 20px; }
+  .dl-content .dl-shot + p { margin-top: 16px; }
+  .plain-list { margin: 0; padding-left: 1.3em; color: var(--text-2); }
+  .plain-list li + li { margin-top: 6px; }
+
+  .dl-aside { position: sticky; top: calc(var(--header-h) + 24px); display: grid; gap: 18px; }
+  @media (max-width: 960px) { .dl-aside { position: static; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); } }
+  .req-card { padding: 20px 22px; }
+  .req-card h2 { font-size: 16px; font-weight: 680; }
+  .req-card ul { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 12px; }
+  .req-card li { display: flex; gap: 12px; align-items: flex-start; font-size: 14.5px; color: var(--text-2); line-height: 1.5; }
+  .req-card li > span { flex-shrink: 0; color: var(--accent-text); margin-top: 1px; }
+  .req-card li > span :global(svg) { display: block; }
+  .req-card strong { color: var(--text); font-weight: 620; }
+  .next-links li { font-size: 15px; }
+</style>
