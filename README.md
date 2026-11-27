@@ -152,7 +152,7 @@ plutil -p "dist/Drag Timer.app/Contents/Info.plist"
 
 ## Release automation
 
-GitHub Actions builds on macOS 14, the minimum supported system; CI also runs on the latest macOS runner:
+GitHub Actions builds on macOS 15, the oldest runner GitHub still offers; CI also runs on the latest macOS runner. The app still targets macOS 14, which `Scripts/build-app.sh` checks, but the suite no longer runs on macOS 14 in CI:
 
 - [CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It builds and tests the source, exercises validator failures, packages both CPU architectures, and verifies the icon and ad-hoc signature.
 - [Release](.github/workflows/release.yml) independently repeats every source and packaging gate for the exact tag. It extracts and verifies the final ZIP before publishing, uses the matching tracked notes as the release body, and refuses to overwrite an existing release.
